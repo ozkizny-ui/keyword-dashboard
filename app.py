@@ -185,35 +185,86 @@ with tab1:
         changes = calc_changes(filtered)
         week_cols = [c for c in filtered.columns if c != "keyword"]
 
-        # 요약 카드
+        # 변화율 numeric 변환 및 ranked 준비
+        if "변화율" in changes.columns:
+            changes["변화율"] = pd.to_numeric(changes["변화율"], errors="coerce")
+        ranked = changes.dropna(subset=["변화율"]) if "변화율" in changes.columns else pd.DataFrame()
+
+        # ── 현재 계절 판단
+        _month = datetime.now().month
+        _season_map = {12: "겨울", 1: "겨울", 2: "겨울",
+                       3: "봄",   4: "봄",   5: "봄",
+                       6: "여름", 7: "여름", 8: "여름",
+                       9: "가을", 10: "가을", 11: "가을"}
+        current_season = _season_map[_month]
+
+        # ── 카드 1: 급상승 1위
+        if not ranked.empty:
+            _r = ranked.nlargest(1, "변화율").iloc[0]
+            card1_name = _r["keyword"]
+            card1_sub = f"+{_r['변화율']:.1f}%" if _r["변화율"] >= 0 else f"{_r['변화율']:.1f}%"
+        else:
+            card1_name, card1_sub = "-", "데이터 부족"
+
+        # ── 카드 2: 시즌 키워드
+        if not ranked.empty and not meta_df.empty and "계절" in meta_df.columns:
+            _season_kws = meta_df[meta_df["계절"].str.contains(current_season, na=False)]["keyword"].tolist()
+            _season_ranked = ranked[ranked["keyword"].isin(_season_kws)]
+            if not _season_ranked.empty:
+                _s = _season_ranked.nlargest(1, "변화율").iloc[0]
+                card2_name = _s["keyword"]
+                card2_sub = f"+{_s['변화율']:.1f}%" if _s["변화율"] >= 0 else f"{_s['변화율']:.1f}%"
+            else:
+                card2_name, card2_sub = "-", f"{current_season} 데이터 없음"
+        else:
+            card2_name, card2_sub = "-", "메타 데이터 없음"
+
+        # ── 카드 3: 검색수 TOP 1
+        if week_cols:
+            _top_idx = filtered[week_cols[-1]].idxmax()
+            card3_name = filtered.loc[_top_idx, "keyword"]
+            card3_sub = f"{filtered.loc[_top_idx, week_cols[-1]]:,}"
+        else:
+            card3_name, card3_sub = "-", ""
+
+        # ── 카드 4: 시장 트렌드
+        if len(week_cols) >= 2:
+            _total_this = filtered[week_cols[-1]].sum()
+            _total_prev = filtered[week_cols[-2]].sum()
+            if _total_prev > 0:
+                _pct = (_total_this - _total_prev) / _total_prev * 100
+                card4_val = f"+{_pct:.1f}%" if _pct >= 0 else f"{_pct:.1f}%"
+            else:
+                card4_val = "-"
+        else:
+            card4_val = "데이터 부족"
+
+        # ── 요약 카드 표시
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.markdown(f"""<div class="metric-card">
-                <h3>총 키워드 수</h3><p>{len(filtered):,}</p>
+                <h3>📈 급상승 1위</h3><p style="font-size:1.3rem">{card1_name}</p>
+                <small style="opacity:0.85">{card1_sub}</small>
             </div>""", unsafe_allow_html=True)
         with col2:
-            if week_cols:
-                total = filtered[week_cols[-1]].sum()
-                st.markdown(f"""<div class="metric-card">
-                    <h3>이번 주 총 검색수</h3><p>{total:,}</p>
-                </div>""", unsafe_allow_html=True)
-        with col3:
-            hot = (changes["변화율"] >= config.CHANGE_ALERT_THRESHOLD).sum() if "변화율" in changes.columns else 0
             st.markdown(f"""<div class="metric-card">
-                <h3>🔥 급상승 키워드</h3><p>{hot}</p>
+                <h3>🔥 시즌 키워드 ({current_season})</h3><p style="font-size:1.3rem">{card2_name}</p>
+                <small style="opacity:0.85">{card2_sub}</small>
+            </div>""", unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""<div class="metric-card">
+                <h3>🏆 검색수 TOP 1</h3><p style="font-size:1.3rem">{card3_name}</p>
+                <small style="opacity:0.85">{card3_sub}</small>
             </div>""", unsafe_allow_html=True)
         with col4:
-            cold = (changes["변화율"] <= -config.CHANGE_ALERT_THRESHOLD).sum() if "변화율" in changes.columns else 0
             st.markdown(f"""<div class="metric-card">
-                <h3>❄️ 급하락 키워드</h3><p>{cold}</p>
+                <h3>📊 시장 트렌드</h3><p>{card4_val}</p>
+                <small style="opacity:0.85">전주 대비</small>
             </div>""", unsafe_allow_html=True)
 
         st.markdown("---")
 
-        # 변화율 큰 키워드 하이라이트 (변화율 계산 가능한 키워드만)
-        if "변화율" in changes.columns:
-            changes["변화율"] = pd.to_numeric(changes["변화율"], errors="coerce")
-        ranked = changes.dropna(subset=["변화율"]) if "변화율" in changes.columns else pd.DataFrame()
+        # ── 급상승/급하락 TOP 10
         if not ranked.empty:
             col_left, col_right = st.columns(2)
             with col_left:
@@ -224,6 +275,26 @@ with tab1:
                 st.subheader("❄️ 급하락 TOP 10")
                 top_down = ranked.nsmallest(10, "변화율")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
                 st.dataframe(top_down, use_container_width=True, hide_index=True)
+
+        # ── 키워드별 검색수 순위
+        st.markdown("---")
+        st.subheader("🔢 키워드별 검색수 순위")
+        if week_cols:
+            _rank_tbl = filtered[["keyword", week_cols[-1]]].copy()
+            _rank_tbl.columns = ["keyword", "이번주"]
+            _rank_tbl = _rank_tbl.sort_values("이번주", ascending=False).reset_index(drop=True)
+            _rank_tbl.insert(0, "순위", range(1, len(_rank_tbl) + 1))
+            if len(week_cols) >= 2:
+                _prev_map = filtered.set_index("keyword")[week_cols[-2]].to_dict()
+                _rate_map = changes.set_index("keyword")["변화율"].to_dict() if "변화율" in changes.columns else {}
+                _rank_tbl["지난주"] = _rank_tbl["keyword"].map(_prev_map).fillna(0).astype(int)
+                _rank_tbl["변화율"] = _rank_tbl["keyword"].map(_rate_map).apply(
+                    lambda x: f"{x:+.1f}%" if pd.notna(x) else "-"
+                )
+            else:
+                _rank_tbl["지난주"] = "-"
+                _rank_tbl["변화율"] = "-"
+            st.dataframe(_rank_tbl, use_container_width=True, hide_index=True, height=400)
 
         st.markdown("---")
 
