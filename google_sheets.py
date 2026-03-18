@@ -130,6 +130,8 @@ def read_weekly_data() -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(data[1:], columns=data[0])
+    # 첫 번째 컬럼을 "keyword"로 정규화 (Sheets에서 헤더가 다를 수 있음)
+    df.rename(columns={df.columns[0]: "keyword"}, inplace=True)
     # 숫자 컬럼 변환
     for col in df.columns[1:]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
