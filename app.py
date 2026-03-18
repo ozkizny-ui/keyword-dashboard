@@ -215,17 +215,11 @@ with tab1:
             with col_left:
                 st.subheader("🔥 급상승 TOP 10")
                 top_up = ranked.nlargest(10, "변화율")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
-                st.dataframe(
-                    top_up.style.format({"이번주": "{:,.0f}", "지난주": "{:,.0f}", "변화량": "{:+,.0f}", "변화율": "{:+.1f}%"}),
-                    use_container_width=True, hide_index=True,
-                )
+                st.dataframe(top_up, use_container_width=True, hide_index=True)
             with col_right:
                 st.subheader("❄️ 급하락 TOP 10")
                 top_down = ranked.nsmallest(10, "변화율")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
-                st.dataframe(
-                    top_down.style.format({"이번주": "{:,.0f}", "지난주": "{:,.0f}", "변화량": "{:+,.0f}", "변화율": "{:+.1f}%"}),
-                    use_container_width=True, hide_index=True,
-                )
+                st.dataframe(top_down, use_container_width=True, hide_index=True)
 
         st.markdown("---")
 
@@ -336,13 +330,7 @@ with tab3:
             for atype in summary["ad_type"].unique():
                 st.markdown(f"#### {atype}")
                 type_data = summary[summary["ad_type"] == atype].sort_values("avg_rank")
-                st.dataframe(
-                    type_data.style.format({
-                        "avg_rank": "{:.1f}", "total_impressions": "{:,.0f}",
-                        "total_clicks": "{:,.0f}", "total_cost": "₩{:,.0f}",
-                    }),
-                    use_container_width=True, hide_index=True,
-                )
+                st.dataframe(type_data, use_container_width=True, hide_index=True)
 
             # Google Sheets에 저장
             if st.button("📤 Google Sheets에 저장"):
