@@ -1,0 +1,34 @@
+name: Weekly Keyword Data Collection
+
+on:
+  schedule:
+    # 매주 월요일 오전 6시 (한국시간 KST = UTC+9)
+    # UTC 기준 일요일 21:00 = KST 월요일 06:00
+    - cron: '0 21 * * 0'
+  workflow_dispatch:  # 수동 실행도 가능
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run weekly data collection
+        env:
+          NAVER_AD_API_LICENSE: ${{ secrets.NAVER_AD_API_LICENSE }}
+          NAVER_AD_SECRET_KEY: ${{ secrets.NAVER_AD_SECRET_KEY }}
+          NAVER_AD_CUSTOMER_ID: ${{ secrets.NAVER_AD_CUSTOMER_ID }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: python fetch_weekly_data.py
