@@ -4,6 +4,7 @@ Streamlit 기반 - 주간 검색수 트래킹 & 트렌드 분석
 
 실행: streamlit run app.py
 """
+import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -116,7 +117,10 @@ def alert_badge(change_pct: float) -> str:
 # 사이드바 - 필터
 # ══════════════════════════════════════════════
 
-st.sidebar.image("https://brand.naver.com/ozkiz", width=50)  # 로고 대체
+if os.path.exists("logo.png"):
+    st.sidebar.image("logo.png", width=120)
+else:
+    st.sidebar.markdown("### 🏪 오즈키즈")
 st.sidebar.title("🔍 키워드 필터")
 
 meta_df = load_meta()
