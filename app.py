@@ -118,7 +118,7 @@ def alert_badge(change_pct: float) -> str:
 # ══════════════════════════════════════════════
 
 if os.path.exists("logo.png"):
-    st.sidebar.image("logo.png", width=120)
+    st.sidebar.image("logo.png", width=80)
 else:
     st.sidebar.markdown("### 🏪 오즈키즈")
 st.sidebar.title("🔍 키워드 필터")
