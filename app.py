@@ -77,13 +77,18 @@ def calc_changes(df: pd.DataFrame) -> pd.DataFrame:
     """주간 변화율 계산"""
     week_cols = [c for c in df.columns if c != "keyword"]
     if len(week_cols) < 2:
-        return df.assign(변화량=0, 변화율=0.0)
+        return df.assign(변화량=pd.NA, 변화율=pd.NA)
 
     latest, prev = week_cols[-1], week_cols[-2]
     result = df[["keyword", latest, prev]].copy()
     result.columns = ["keyword", "이번주", "지난주"]
     result["변화량"] = result["이번주"] - result["지난주"]
-    result["변화율"] = (result["변화량"] / result["지난주"].replace(0, 1) * 100).round(1)
+    # 지난주가 0이거나 NaN이면 변화율 계산 불가 → NaN
+    valid = result["지난주"].fillna(0) > 0
+    result["변화율"] = pd.NA
+    result.loc[valid, "변화율"] = (
+        result.loc[valid, "변화량"] / result.loc[valid, "지난주"] * 100
+    ).round(1)
     return result
 
 
@@ -201,12 +206,13 @@ with tab1:
 
         st.markdown("---")
 
-        # 변화율 큰 키워드 하이라이트
-        if "변화율" in changes.columns:
+        # 변화율 큰 키워드 하이라이트 (변화율 계산 가능한 키워드만)
+        ranked = changes.dropna(subset=["변화율"]) if "변화율" in changes.columns else pd.DataFrame()
+        if not ranked.empty:
             col_left, col_right = st.columns(2)
             with col_left:
                 st.subheader("🔥 급상승 TOP 10")
-                top_up = changes.nlargest(10, "변화율")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
+                top_up = ranked.nlargest(10, "변화율")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
                 st.dataframe(
                     top_up.style.format({"이번주": "{:,.0f}", "지난주": "{:,.0f}", "변화량": "{:+,.0f}", "변화율": "{:+.1f}%"})
                     .background_gradient(subset=["변화율"], cmap="Reds"),
@@ -214,7 +220,7 @@ with tab1:
                 )
             with col_right:
                 st.subheader("❄️ 급하락 TOP 10")
-                top_down = changes.nsmallest(10, "변화율")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
+                top_down = ranked.nsmallest(10, "변화율")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
                 st.dataframe(
                     top_down.style.format({"이번주": "{:,.0f}", "지난주": "{:,.0f}", "변화량": "{:+,.0f}", "변화율": "{:+.1f}%"})
                     .background_gradient(subset=["변화율"], cmap="Blues_r"),
