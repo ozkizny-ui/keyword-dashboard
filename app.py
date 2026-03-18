@@ -207,6 +207,8 @@ with tab1:
         st.markdown("---")
 
         # 변화율 큰 키워드 하이라이트 (변화율 계산 가능한 키워드만)
+        if "변화율" in changes.columns:
+            changes["변화율"] = pd.to_numeric(changes["변화율"], errors="coerce")
         ranked = changes.dropna(subset=["변화율"]) if "변화율" in changes.columns else pd.DataFrame()
         if not ranked.empty:
             col_left, col_right = st.columns(2)
