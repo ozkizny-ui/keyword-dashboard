@@ -18,9 +18,19 @@ SCOPES = [
 
 
 def _get_client() -> gspread.Client:
-    """Google Sheets 클라이언트 생성"""
-    # 환경변수에 JSON 문자열로 저장된 경우 (GitHub Actions용)
-    creds_json = __import__("os").getenv("GOOGLE_CREDENTIALS_JSON")
+    """Google Sheets 클라이언트 생성
+    우선순위: GOOGLE_CREDENTIALS_JSON 환경변수 → st.secrets → credentials.json 파일
+    """
+    import os
+    creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+
+    if not creds_json:
+        try:
+            import streamlit as st
+            creds_json = st.secrets.get("GOOGLE_CREDENTIALS_JSON", "")
+        except Exception:
+            pass
+
     if creds_json:
         info = json.loads(creds_json)
         creds = Credentials.from_service_account_info(info, scopes=SCOPES)
