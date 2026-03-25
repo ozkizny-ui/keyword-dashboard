@@ -507,10 +507,11 @@ def _render_rank_tab(
             else:
                 st.info(f"📅 파일 날짜 범위: **{_date_label}**")
                 _summary = summarize_by_keyword(_df)
+                _col_kr = {**_RANK_COL_KR, "avg_rank": f"평균노출순위 ({_date_label})"}
                 _disp = (
                     _summary[[c for c in _RANK_SHOW_COLS if c in _summary.columns]]
                     .sort_values("avg_rank")
-                    .rename(columns=_RANK_COL_KR)
+                    .rename(columns=_col_kr)
                 )
                 st.metric("키워드 수", len(_disp))
                 st.dataframe(_disp, use_container_width=True, hide_index=True, height=350)
