@@ -16,7 +16,7 @@ COLUMN_MAPPINGS = {
     "keyword": ["키워드", "keyword", "검색어", "쿼리"],
     "campaign": ["캠페인", "campaign", "캠페인명"],
     "adgroup": ["광고그룹", "adgroup", "그룹"],
-    "avg_rank": ["평균노출순위", "평균순위", "avg_rank", "노출순위", "Avg. Position"],
+    "avg_rank": ["평균노출순위", "평균순위", "avg_rank", "노출순위", "Avg. Position", "순위", "rank"],
     "impressions": ["노출수", "impressions", "노출"],
     "clicks": ["클릭수", "clicks", "클릭"],
     "cost": ["비용", "cost", "총비용"],
@@ -81,6 +81,8 @@ def parse_ad_report(file_path: str, ad_type: str = "auto") -> pd.DataFrame:
             result["ad_type"] = "쇼핑검색"
         else:
             result["ad_type"] = "파워링크"
+    elif ad_type == "blog":
+        result["ad_type"] = "블로그"
     else:
         result["ad_type"] = "파워링크" if ad_type == "powerlink" else "쇼핑검색"
 

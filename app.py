@@ -12,7 +12,10 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 import config
-from google_sheets import read_weekly_data, read_trend_data, read_rank_data
+from google_sheets import (
+    read_weekly_data, read_trend_data, read_rank_data,
+    read_rank_history, append_rank_history,
+)
 from ad_rank_parser import parse_ad_report, summarize_by_keyword
 
 # ══════════════════════════════════════════════
@@ -65,6 +68,18 @@ def load_trend():
 @st.cache_data(ttl=300)
 def load_rank():
     return read_rank_data()
+
+@st.cache_data(ttl=300)
+def load_rank_shopping():
+    return read_rank_history(config.SHEET_NAME_RANK_SHOPPING)
+
+@st.cache_data(ttl=300)
+def load_rank_powerlink():
+    return read_rank_history(config.SHEET_NAME_RANK_POWERLINK)
+
+@st.cache_data(ttl=300)
+def load_rank_blog():
+    return read_rank_history(config.SHEET_NAME_RANK_BLOG)
 
 @st.cache_data(ttl=3600)
 def load_meta():
@@ -443,52 +458,118 @@ with tab2:
 
 # ── TAB 3: 광고 순위 ──
 with tab3:
-    st.subheader("🏆 광고 순위 (네이버 검색광고 리포트)")
+    st.subheader("🏆 광고 순위")
 
-    # 파일 업로드
-    uploaded = st.file_uploader(
-        "네이버 검색광고 대시보드에서 다운받은 엑셀 파일을 업로드하세요",
-        type=["xlsx", "xls", "csv"],
-        help="파워링크 또는 쇼핑검색 리포트 파일",
-    )
+    _week_label = f"{datetime.now().year}-W{datetime.now().isocalendar()[1]:02d}"
+    st.caption(f"현재 주차: {_week_label}")
 
-    if uploaded:
-        ad_type = st.radio("광고 유형", ["자동 감지", "파워링크", "쇼핑검색"], horizontal=True)
-        type_map = {"자동 감지": "auto", "파워링크": "powerlink", "쇼핑검색": "shopping"}
+    # ── 업로드 섹션 (3열) ──
+    _RANK_TYPES = [
+        ("🛒 쇼핑검색", "shopping", config.SHEET_NAME_RANK_SHOPPING),
+        ("🔗 파워링크", "powerlink", config.SHEET_NAME_RANK_POWERLINK),
+        ("📝 블로그",   "blog",      config.SHEET_NAME_RANK_BLOG),
+    ]
 
-        try:
-            report = parse_ad_report(uploaded, ad_type=type_map[ad_type])
-            summary = summarize_by_keyword(report)
+    _cols = st.columns(3)
+    for (_label, _ad_type, _sheet), _col in zip(_RANK_TYPES, _cols):
+        with _col:
+            st.markdown(f"#### {_label}")
+            _uploaded = st.file_uploader(
+                f"{_label} 리포트 업로드",
+                type=["xlsx", "xls", "csv"],
+                key=_ad_type,
+            )
+            if _uploaded:
+                try:
+                    _report = parse_ad_report(_uploaded, ad_type=_ad_type)
+                    _summary = summarize_by_keyword(_report)
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("파싱된 키워드 수", f"{summary['keyword'].nunique():,}")
-            with col2:
-                st.metric("데이터 행 수", f"{len(report):,}")
+                    st.metric("키워드 수", f"{_summary['keyword'].nunique():,}")
 
-            # 광고 유형별 탭
-            for atype in summary["ad_type"].unique():
-                st.markdown(f"#### {atype}")
-                type_data = summary[summary["ad_type"] == atype].sort_values("avg_rank")
-                st.dataframe(type_data, use_container_width=True, hide_index=True)
+                    # avg_rank 있는 열만 표시
+                    _disp_cols = [c for c in ["keyword", "avg_rank", "total_impressions", "total_clicks"] if c in _summary.columns]
+                    st.dataframe(
+                        _summary[_disp_cols].sort_values("avg_rank") if "avg_rank" in _disp_cols else _summary[_disp_cols],
+                        use_container_width=True,
+                        hide_index=True,
+                        height=220,
+                    )
 
-            # Google Sheets에 저장
-            if st.button("📤 Google Sheets에 저장"):
-                from google_sheets import save_rank_data
-                from fetch_weekly_data import get_week_label
-                save_rank_data(summary, get_week_label())
-                st.success("저장 완료!")
+                    if st.button(f"📤 Sheets 저장 ({_week_label})", key=f"save_{_ad_type}"):
+                        try:
+                            append_rank_history(_report, _week_label, _sheet)
+                            st.cache_data.clear()
+                            st.success("저장 완료!")
+                        except Exception as _save_err:
+                            st.error(f"저장 실패: {_save_err}")
 
-        except Exception as e:
-            st.error(f"파일 파싱 실패: {e}")
-            st.info("파일 형식이 다를 수 있습니다. 파일의 첫 몇 행을 확인해주세요.")
+                except Exception as _parse_err:
+                    st.error(f"파싱 실패: {_parse_err}")
+                    st.caption("파일 형식을 확인해주세요 (키워드·순위 컬럼 필요).")
 
-    # 기존 저장된 순위 데이터 표시
-    rank_df = load_rank()
-    if not rank_df.empty:
-        st.markdown("---")
-        st.subheader("📊 저장된 광고 순위 이력")
-        st.dataframe(rank_df, use_container_width=True, hide_index=True, height=300)
+    # ── 순위 이력 그래프 ──
+    st.markdown("---")
+    st.subheader("📈 순위 이력 추이")
+
+    _hist_tabs = st.tabs(["🛒 쇼핑검색", "🔗 파워링크", "📝 블로그"])
+    _hist_loaders = [load_rank_shopping, load_rank_powerlink, load_rank_blog]
+    _hist_labels  = ["쇼핑검색", "파워링크", "블로그"]
+
+    for _htab, _loader, _hlabel in zip(_hist_tabs, _hist_loaders, _hist_labels):
+        with _htab:
+            _hist = _loader()
+            if _hist.empty:
+                st.info(f"{_hlabel} 순위 데이터가 없습니다. 위에서 리포트를 업로드하고 저장해주세요.")
+                continue
+
+            _week_cols = [c for c in _hist.columns if c != "keyword"]
+            _kw_opts = _hist["keyword"].dropna().tolist()
+
+            _sel = st.multiselect(
+                "키워드 선택 (최대 10개)",
+                _kw_opts,
+                default=_kw_opts[:min(5, len(_kw_opts))],
+                max_selections=10,
+                key=f"rank_kw_{_hlabel}",
+            )
+            if not _sel:
+                continue
+
+            _plot = (
+                _hist[_hist["keyword"].isin(_sel)]
+                .melt(id_vars="keyword", value_vars=_week_cols, var_name="주차", value_name="순위")
+            )
+            _plot["순위"] = pd.to_numeric(_plot["순위"], errors="coerce")
+            _plot = _plot.dropna(subset=["순위"])
+
+            if _plot.empty:
+                st.info("선택한 키워드에 저장된 데이터가 없습니다.")
+                continue
+
+            _fig = px.line(
+                _plot, x="주차", y="순위", color="keyword",
+                markers=True,
+                title=f"{_hlabel} 키워드별 순위 추이",
+                labels={"주차": "주차", "순위": "순위"},
+                template="plotly_white",
+            )
+            _fig.update_layout(
+                yaxis=dict(
+                    title="순위 (1위가 위)",
+                    autorange="reversed",
+                    dtick=1,
+                ),
+                height=450,
+                hovermode="x unified",
+                legend=dict(orientation="h", y=-0.25),
+            )
+            st.plotly_chart(_fig, use_container_width=True)
+
+            with st.expander("📋 원본 데이터"):
+                st.dataframe(
+                    _hist[_hist["keyword"].isin(_sel)],
+                    use_container_width=True, hide_index=True,
+                )
 
 
 # ── TAB 4: 데이터 관리 ──

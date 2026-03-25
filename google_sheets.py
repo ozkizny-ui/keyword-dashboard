@@ -172,6 +172,79 @@ def read_trend_data() -> pd.DataFrame:
     return df
 
 
+def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
+    """
+    순위 이력을 keyword | week1 | week2 | ... 구조로 누적 저장합니다.
+    df: keyword, avg_rank 컬럼 필요 (주간검색수 시트와 동일한 피벗 구조)
+    """
+    client = _get_client()
+    spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
+    ws = _get_or_create_sheet(spreadsheet, sheet_name)
+
+    # keyword당 avg_rank 평균으로 집계 (동일 키워드 중복 방지)
+    rank_map = (
+        df[df["keyword"].notna() & df["avg_rank"].notna()]
+        .groupby("keyword")["avg_rank"]
+        .mean()
+        .round(1)
+        .to_dict()
+    )
+    if not rank_map:
+        return
+
+    existing = ws.get_all_values()
+
+    if not existing:
+        header = ["keyword", week_label]
+        rows = [header] + [[kw, val] for kw, val in rank_map.items()]
+        ws.update(range_name="A1", values=rows)
+        return
+
+    header = existing[0]
+    keyword_row = {r[0]: i for i, r in enumerate(existing) if i > 0}
+
+    if week_label in header:
+        col_idx = header.index(week_label)
+    else:
+        col_idx = len(header)
+        ws.update_cell(1, col_idx + 1, week_label)
+
+    cells_to_update = []
+    new_rows = []
+    for kw, val in rank_map.items():
+        if kw in keyword_row:
+            row_idx = keyword_row[kw] + 1  # 1-based
+            cells_to_update.append(gspread.Cell(row_idx, col_idx + 1, val))
+        else:
+            new_row = [kw] + [""] * (col_idx - 1) + [val]
+            new_rows.append(new_row)
+
+    if cells_to_update:
+        ws.update_cells(cells_to_update)
+    if new_rows:
+        ws.append_rows(new_rows)
+
+
+def read_rank_history(sheet_name: str) -> pd.DataFrame:
+    """순위 이력 읽기 - keyword | week1 | week2 | ... 구조"""
+    client = _get_client()
+    spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
+    try:
+        ws = spreadsheet.worksheet(sheet_name)
+    except gspread.WorksheetNotFound:
+        return pd.DataFrame()
+
+    data = ws.get_all_values()
+    if len(data) < 2:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(data[1:], columns=data[0])
+    df.rename(columns={df.columns[0]: "keyword"}, inplace=True)
+    for col in df.columns[1:]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
 def read_rank_data() -> pd.DataFrame:
     """Google Sheets에서 광고 순위 데이터를 읽어옵니다."""
     client = _get_client()

@@ -46,6 +46,9 @@ SPREADSHEET_ID = "1uD-2gHghytC-Gb4ryEWGmhtjeFqGcTY59M90sxrASyI"
 SHEET_NAME_WEEKLY = "주간검색수"
 SHEET_NAME_TREND = "연간트렌드"
 SHEET_NAME_RANK = "광고순위"
+SHEET_NAME_RANK_SHOPPING = "쇼핑검색순위"
+SHEET_NAME_RANK_POWERLINK = "파워링크순위"
+SHEET_NAME_RANK_BLOG = "블로그순위"
 
 # ──────────────────────────────────────────────
 # 프로젝트 설정
