@@ -522,35 +522,46 @@ def _render_rank_tab(
                     if _meta_src_col and _meta_src_col != "품목":
                         _meta_sub = _meta_sub.rename(columns={_meta_src_col: "품목"})
                     _summary = _summary.merge(_meta_sub, on="keyword", how="left")
-                    # NaN/None → 빈칸
+                    # NaN/None/빈칸 → "미분류"
                     for _mc in ["계절", "품목"]:
                         if _mc in _summary.columns:
-                            _summary[_mc] = _summary[_mc].fillna("").replace("None", "")
+                            _summary[_mc] = (
+                                _summary[_mc].fillna("").replace("None", "")
+                                .apply(lambda v: "미분류" if str(v).strip() == "" else v)
+                            )
 
-                # ── 필터 (계절 / 품목) - multiselect ──
+                # ── 필터 (계절 / 품목) - pills / multiselect ──
+                # 파싱 데이터 기준 고유값 추출
+                _season_opts = sorted(_summary["계절"].unique().tolist()) if "계절" in _summary.columns else []
+                _item_opts   = sorted(_summary["품목"].unique().tolist()) if "품목" in _summary.columns else []
+
                 _fc1, _fc2 = st.columns(2)
                 with _fc1:
-                    _season_opts = sorted(
-                        meta_df["계절"].dropna().unique().tolist()
-                    ) if "계절" in meta_df.columns else []
-                    _sel_seasons = st.multiselect(
-                        "계절 필터 (미선택 시 전체)",
-                        _season_opts,
-                        default=[],
-                        key=f"{uploader_key}_season_filter",
-                    )
+                    try:
+                        _sel_seasons = st.pills(
+                            "계절", _season_opts, selection_mode="multi",
+                            default=_season_opts,
+                            key=f"{uploader_key}_season_filter",
+                        )
+                    except AttributeError:
+                        _sel_seasons = st.multiselect(
+                            "계절", _season_opts, default=_season_opts,
+                            key=f"{uploader_key}_season_filter",
+                        )
                 with _fc2:
-                    _item_opts = sorted(
-                        meta_df[_meta_src_col].dropna().unique().tolist()
-                    ) if _meta_src_col else []
-                    _sel_items = st.multiselect(
-                        "품목 필터 (미선택 시 전체)",
-                        _item_opts,
-                        default=[],
-                        key=f"{uploader_key}_item_filter",
-                    )
+                    try:
+                        _sel_items = st.pills(
+                            "품목", _item_opts, selection_mode="multi",
+                            default=_item_opts,
+                            key=f"{uploader_key}_item_filter",
+                        )
+                    except AttributeError:
+                        _sel_items = st.multiselect(
+                            "품목", _item_opts, default=_item_opts,
+                            key=f"{uploader_key}_item_filter",
+                        )
 
-                # 필터 적용
+                # 필터 적용 (미선택 시 전체, "미분류" 키워드는 항상 포함)
                 _filt = _summary.copy()
                 if _sel_seasons and "계절" in _filt.columns:
                     _filt = _filt[_filt["계절"].isin(_sel_seasons)]
