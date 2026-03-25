@@ -467,81 +467,83 @@ with tab3:
     _week_label = f"{_monday.strftime('%Y.%m.%d')}-{_sunday.strftime('%Y.%m.%d')}"
     st.caption(f"현재 주차: {_week_label}")
 
-    # ── 네이버 검색광고 통합 리포트 업로드 (쇼핑검색 + 파워링크) ──
-    st.markdown("#### 📂 네이버 검색광고 리포트 업로드")
-    st.caption("쇼핑검색·파워링크가 포함된 CSV 파일을 업로드하세요. (1행: 제목, 2행: 컬럼명, 3행~: 데이터)")
+    _SHOW_COLS = ["keyword", "avg_rank", "impressions", "clicks", "cost"]
+    _COL_KR = {
+        "keyword": "키워드", "avg_rank": "평균노출순위",
+        "impressions": "노출수", "clicks": "클릭수", "cost": "총비용",
+    }
 
-    _naver_file = st.file_uploader(
-        "네이버 검색광고 리포트 (CSV/Excel)",
-        type=["csv", "xlsx", "xls"],
-        key="naver_report",
-    )
+    _col_shop, _col_power = st.columns(2)
 
-    if _naver_file:
-        try:
-            _report, _date_label = parse_ad_report(_naver_file, ad_type="auto")
+    # ── 쇼핑검색 리포트 업로드 ──
+    with _col_shop:
+        st.markdown("#### 🛒 쇼핑검색 리포트")
+        _shop_file = st.file_uploader(
+            "쇼핑검색 리포트 CSV",
+            key="shopping_upload",
+            type=["csv", "xlsx", "xls"],
+        )
+        if _shop_file:
+            try:
+                _shop_all, _shop_date = parse_ad_report(_shop_file, ad_type="shopping")
+                _shop_df = _shop_all[_shop_all["ad_type"] == "쇼핑검색"].copy()
+                if _shop_df.empty:
+                    st.warning("쇼핑검색 데이터가 없습니다. 파일을 확인해주세요.")
+                else:
+                    st.info(f"📅 **{_shop_date}**")
+                    _shop_sum = summarize_by_keyword(_shop_df)
+                    _disp = (
+                        _shop_sum[[c for c in _SHOW_COLS if c in _shop_sum.columns]]
+                        .sort_values("avg_rank")
+                        .rename(columns=_COL_KR)
+                    )
+                    st.metric("키워드 수", len(_disp))
+                    st.dataframe(_disp, use_container_width=True, hide_index=True, height=350)
+                    if st.button("📤 쇼핑검색순위 저장", key="save_shopping"):
+                        try:
+                            append_rank_history(_shop_df, _shop_date, config.SHEET_NAME_RANK_SHOPPING)
+                            st.cache_data.clear()
+                            st.success(f"저장 완료! ({_shop_date})")
+                        except Exception as _e:
+                            st.error(f"저장 실패: {_e}")
+            except Exception as _e:
+                st.error(f"파싱 실패: {_e}")
+                st.caption("1행: 제목, 2행: 컬럼명, 3행~: 데이터 형식인지 확인하세요.")
 
-            if _report.empty:
-                st.warning("파싱된 데이터가 없습니다. 파일 형식을 확인해주세요.")
-            else:
-                st.info(f"📅 파일 날짜 범위: **{_date_label}**")
-
-                _shop_df  = _report[_report["ad_type"] == "쇼핑검색"].copy()
-                _power_df = _report[_report["ad_type"] == "파워링크"].copy()
-
-                _SHOW_COLS = ["keyword", "avg_rank", "impressions", "clicks", "cost"]
-                _COL_KR    = {
-                    "keyword": "키워드", "avg_rank": "평균노출순위",
-                    "impressions": "노출수", "clicks": "클릭수", "cost": "총비용",
-                }
-
-                _col_shop, _col_power = st.columns(2)
-
-                with _col_shop:
-                    st.markdown("##### 🛒 쇼핑검색")
-                    if _shop_df.empty:
-                        st.caption("쇼핑검색 데이터 없음")
-                    else:
-                        _shop_sum = summarize_by_keyword(_shop_df)
-                        _disp = (
-                            _shop_sum[[c for c in _SHOW_COLS if c in _shop_sum.columns]]
-                            .sort_values("avg_rank")
-                            .rename(columns=_COL_KR)
-                        )
-                        st.metric("키워드 수", len(_disp))
-                        st.dataframe(_disp, use_container_width=True, hide_index=True, height=300)
-                        if st.button(f"📤 쇼핑검색순위 저장", key="save_shopping"):
-                            try:
-                                append_rank_history(_shop_df, _date_label, config.SHEET_NAME_RANK_SHOPPING)
-                                st.cache_data.clear()
-                                st.success(f"저장 완료! ({_date_label})")
-                            except Exception as _e:
-                                st.error(f"저장 실패: {_e}")
-
-                with _col_power:
-                    st.markdown("##### 🔗 파워링크")
-                    if _power_df.empty:
-                        st.caption("파워링크 데이터 없음")
-                    else:
-                        _power_sum = summarize_by_keyword(_power_df)
-                        _disp = (
-                            _power_sum[[c for c in _SHOW_COLS if c in _power_sum.columns]]
-                            .sort_values("avg_rank")
-                            .rename(columns=_COL_KR)
-                        )
-                        st.metric("키워드 수", len(_disp))
-                        st.dataframe(_disp, use_container_width=True, hide_index=True, height=300)
-                        if st.button(f"📤 파워링크순위 저장", key="save_powerlink"):
-                            try:
-                                append_rank_history(_power_df, _date_label, config.SHEET_NAME_RANK_POWERLINK)
-                                st.cache_data.clear()
-                                st.success(f"저장 완료! ({_date_label})")
-                            except Exception as _e:
-                                st.error(f"저장 실패: {_e}")
-
-        except Exception as _parse_err:
-            st.error(f"파싱 실패: {_parse_err}")
-            st.caption("파일 형식을 확인하세요 (1행: 제목, 2행: 컬럼명, 3행~: 데이터).")
+    # ── 파워링크 리포트 업로드 ──
+    with _col_power:
+        st.markdown("#### 🔗 파워링크 리포트")
+        _power_file = st.file_uploader(
+            "파워링크 리포트 CSV",
+            key="powerlink_upload",
+            type=["csv", "xlsx", "xls"],
+        )
+        if _power_file:
+            try:
+                _power_all, _power_date = parse_ad_report(_power_file, ad_type="powerlink")
+                _power_df = _power_all[_power_all["ad_type"] == "파워링크"].copy()
+                if _power_df.empty:
+                    st.warning("파워링크 데이터가 없습니다. 파일을 확인해주세요.")
+                else:
+                    st.info(f"📅 **{_power_date}**")
+                    _power_sum = summarize_by_keyword(_power_df)
+                    _disp = (
+                        _power_sum[[c for c in _SHOW_COLS if c in _power_sum.columns]]
+                        .sort_values("avg_rank")
+                        .rename(columns=_COL_KR)
+                    )
+                    st.metric("키워드 수", len(_disp))
+                    st.dataframe(_disp, use_container_width=True, hide_index=True, height=350)
+                    if st.button("📤 파워링크순위 저장", key="save_powerlink"):
+                        try:
+                            append_rank_history(_power_df, _power_date, config.SHEET_NAME_RANK_POWERLINK)
+                            st.cache_data.clear()
+                            st.success(f"저장 완료! ({_power_date})")
+                        except Exception as _e:
+                            st.error(f"저장 실패: {_e}")
+            except Exception as _e:
+                st.error(f"파싱 실패: {_e}")
+                st.caption("1행: 제목, 2행: 컬럼명, 3행~: 데이터 형식인지 확인하세요.")
 
     st.markdown("---")
 
