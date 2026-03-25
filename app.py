@@ -327,53 +327,118 @@ with tab1:
 with tab2:
     trend_df = load_trend()
 
-    if trend_df.empty:
-        st.info("트렌드 데이터가 없습니다. `fetch_weekly_data.py`를 실행하면 자동으로 수집됩니다.")
+    _has_trend_data = (
+        not trend_df.empty
+        and "keyword" in trend_df.columns
+        and "estimated_weekly_volume" in trend_df.columns
+        and "date" in trend_df.columns
+        and trend_df["keyword"].notna().any()
+    )
+
+    if not _has_trend_data:
+        st.info("데이터 관리 탭에서 데이터 수집을 먼저 실행해주세요.")
     else:
         st.subheader("📊 올해 vs 작년 검색 트렌드 비교")
         st.caption("네이버 데이터랩 비율 × 실제 검색수 기반 추정치")
 
-        kw_cols = [c for c in trend_df.columns if c not in ("date", "keyword", "ratio", "estimated_weekly_volume")]
+        this_year = datetime.now().year
+        last_year = this_year - 1
 
-        # 피벗되지 않은 형태인 경우 처리
-        if "keyword" in trend_df.columns and "estimated_weekly_volume" in trend_df.columns:
-            avail_kws = trend_df["keyword"].unique().tolist()
-            filtered_kws = [kw for kw in avail_kws if kw in apply_filters(weekly_df)["keyword"].values] if not weekly_df.empty else avail_kws
-            trend_selected = st.multiselect("키워드 선택", filtered_kws, default=filtered_kws[:3], max_selections=5, key="trend_kw")
+        # 날짜·연도·주차·검색수 파생 컬럼 생성
+        _tdf = trend_df.copy()
+        _tdf["_date"] = pd.to_datetime(_tdf["date"], errors="coerce")
+        _tdf["_year"] = _tdf["_date"].dt.year
+        _tdf["_week"] = _tdf["_date"].dt.isocalendar().week
+        _tdf["_vol"] = pd.to_numeric(_tdf["estimated_weekly_volume"], errors="coerce")
+        _tdf["_week"] = pd.to_numeric(_tdf["_week"], errors="coerce")
 
-            if trend_selected:
-                plot_data = trend_df[trend_df["keyword"].isin(trend_selected)].copy()
-                plot_data["year"] = pd.to_datetime(plot_data["date"]).dt.year.astype(str)
-                plot_data["week"] = pd.to_datetime(plot_data["date"]).dt.isocalendar().week.astype(int)
+        # 올해·작년 데이터 있는 행만
+        _tdf = _tdf[
+            _tdf["keyword"].notna()
+            & _tdf["_year"].isin([this_year, last_year])
+            & _tdf["_week"].notna()
+            & _tdf["_vol"].notna()
+        ]
 
-                fig = px.line(
-                    plot_data, x="week", y="estimated_weekly_volume",
-                    color="keyword", line_dash="year",
-                    title="주간 추정 검색수 (올해 실선 / 작년 점선)",
-                    labels={"week": "주차", "estimated_weekly_volume": "추정 검색수"},
-                    template="plotly_white",
-                )
-                fig.update_layout(height=500, legend=dict(orientation="h", y=-0.2))
-                st.plotly_chart(fig, use_container_width=True)
+        avail_kws = sorted(_tdf["keyword"].dropna().unique().tolist())
 
-                # 비율(ratio) 원본 그래프
-                with st.expander("📉 데이터랩 원본 비율 보기"):
-                    fig2 = px.line(
-                        plot_data, x="date", y="ratio", color="keyword",
-                        title="데이터랩 검색 비율 (0~100)",
-                        template="plotly_white",
-                    )
-                    st.plotly_chart(fig2, use_container_width=True)
+        if not avail_kws:
+            st.info("데이터 관리 탭에서 데이터 수집을 먼저 실행해주세요.")
         else:
-            # 피벗 형태
-            kw_options_trend = [c for c in trend_df.columns if c != "date"]
-            trend_selected = st.multiselect("키워드 선택", kw_options_trend, default=kw_options_trend[:3], max_selections=5, key="trend_kw2")
+            trend_selected = st.multiselect(
+                "키워드 선택 (최대 5개)",
+                avail_kws,
+                default=avail_kws[:min(3, len(avail_kws))],
+                max_selections=5,
+                key="trend_kw",
+            )
 
             if trend_selected:
-                plot_data = trend_df[["date"] + trend_selected].melt(id_vars="date", var_name="keyword", value_name="value")
-                fig = px.line(plot_data, x="date", y="value", color="keyword", template="plotly_white")
-                fig.update_layout(height=500)
-                st.plotly_chart(fig, use_container_width=True)
+                plot_df = _tdf[_tdf["keyword"].isin(trend_selected)].copy()
+
+                if plot_df.empty:
+                    st.info("선택한 키워드에 대한 데이터가 없습니다.")
+                else:
+                    # 키워드별 색상 고정
+                    _palette = px.colors.qualitative.Plotly
+                    _color_map = {kw: _palette[i % len(_palette)] for i, kw in enumerate(trend_selected)}
+
+                    fig = go.Figure()
+                    for kw in trend_selected:
+                        for year, dash, label_suffix in [
+                            (this_year, "solid", f" (올해 {this_year})"),
+                            (last_year, "dash",  f" (작년 {last_year})"),
+                        ]:
+                            _sub = (
+                                plot_df[(plot_df["keyword"] == kw) & (plot_df["_year"] == year)]
+                                .sort_values("_week")
+                            )
+                            if _sub.empty:
+                                continue
+                            fig.add_trace(go.Scatter(
+                                x=_sub["_week"].astype(int),
+                                y=_sub["_vol"],
+                                mode="lines",
+                                name=f"{kw}{label_suffix}",
+                                line=dict(color=_color_map[kw], dash=dash, width=2),
+                                hovertemplate=(
+                                    f"<b>{kw}{label_suffix}</b><br>"
+                                    "주차: %{x}<br>검색수: %{y:,.0f}<extra></extra>"
+                                ),
+                            ))
+
+                    fig.update_layout(
+                        title="올해 vs 작년 주간 검색수 추이",
+                        xaxis=dict(title="주차", dtick=4, range=[1, 53]),
+                        yaxis=dict(title="추정 검색수"),
+                        height=500,
+                        hovermode="x unified",
+                        legend=dict(orientation="h", y=-0.3),
+                        template="plotly_white",
+                        annotations=[dict(
+                            text="실선 = 올해 | 점선 = 작년",
+                            xref="paper", yref="paper",
+                            x=1, y=1.02, showarrow=False,
+                            font=dict(size=11, color="gray"),
+                        )],
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                # 데이터랩 원본 비율 (ratio 컬럼 있을 때만)
+                if "ratio" in trend_df.columns:
+                    with st.expander("📉 데이터랩 원본 비율 보기"):
+                        _ratio_df = _tdf[_tdf["keyword"].isin(trend_selected)].copy()
+                        _ratio_df["ratio"] = pd.to_numeric(_ratio_df.get("ratio", pd.NA), errors="coerce")
+                        _ratio_df = _ratio_df.dropna(subset=["ratio"])
+                        if not _ratio_df.empty:
+                            fig2 = px.line(
+                                _ratio_df, x="_date", y="ratio", color="keyword",
+                                title="데이터랩 검색 비율 (0~100)",
+                                labels={"_date": "날짜", "ratio": "비율"},
+                                template="plotly_white",
+                            )
+                            fig2.update_layout(height=350)
+                            st.plotly_chart(fig2, use_container_width=True)
 
 
 # ── TAB 3: 광고 순위 ──

@@ -162,11 +162,13 @@ def read_trend_data() -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(data[1:], columns=data[0])
+    # keyword, date 컬럼은 문자열/날짜 유지 - 숫자 변환 제외
+    str_cols = {"date", "keyword"}
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
     for col in df.columns:
-        if col != "date":
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        if col not in str_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
 
