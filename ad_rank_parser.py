@@ -63,33 +63,36 @@ def _default_week_label() -> str:
     return f"{monday.strftime('%Y.%m.%d')}-{sunday.strftime('%Y.%m.%d')}"
 
 
+def _read_title(file_obj) -> str:
+    """1행(제목)을 문자열로 읽어 반환. 날짜 추출에 사용."""
+    for enc in ("utf-8-sig", "cp949"):
+        try:
+            if hasattr(file_obj, "seek"):
+                file_obj.seek(0)
+            row = pd.read_csv(file_obj, encoding=enc, nrows=1, header=None, dtype=str)
+            return " ".join(str(v) for v in row.iloc[0].tolist() if pd.notna(v))
+        except Exception:
+            continue
+    return ""
+
+
 def _read_raw(file_obj) -> pd.DataFrame:
-    """파일 객체를 헤더 없이 원시 DataFrame으로 읽기. CSV → Excel 순서로 시도."""
-    if hasattr(file_obj, "seek"):
-        file_obj.seek(0)
+    """
+    파일을 DataFrame으로 읽기.
+    skiprows=1: 1행(제목) 건너뜀 → 2행이 컬럼명, 3행~이 데이터.
+    읽기 순서: CSV(utf-8-sig) → CSV(cp949) → Excel
+    """
+    for enc in ("utf-8-sig", "cp949"):
+        try:
+            if hasattr(file_obj, "seek"):
+                file_obj.seek(0)
+            return pd.read_csv(file_obj, encoding=enc, skiprows=1, dtype=str)
+        except Exception:
+            continue
 
-    # CSV 시도 (utf-8-sig → utf-8 → cp949 → euc-kr 순)
-    if hasattr(file_obj, "read"):
-        content = file_obj.read()
-        if hasattr(file_obj, "seek"):
-            file_obj.seek(0)
-        for enc in ("utf-8-sig", "utf-8", "cp949", "euc-kr"):
-            try:
-                buf = io.BytesIO(content) if isinstance(content, bytes) else io.StringIO(content)
-                return pd.read_csv(buf, header=None, dtype=str, encoding=enc)
-            except (UnicodeDecodeError, Exception):
-                continue
-
-    # Excel fallback
     if hasattr(file_obj, "seek"):
         file_obj.seek(0)
-    try:
-        return pd.read_excel(file_obj, header=None, dtype=str, engine="openpyxl")
-    except Exception:
-        pass
-    if hasattr(file_obj, "seek"):
-        file_obj.seek(0)
-    return pd.read_excel(file_obj, header=None, dtype=str, engine="xlrd")
+    return pd.read_excel(file_obj, skiprows=1, dtype=str)
 
 
 def parse_ad_report(file_obj, ad_type: str = "auto") -> tuple:
@@ -106,26 +109,22 @@ def parse_ad_report(file_obj, ad_type: str = "auto") -> tuple:
         - df         : keyword, ad_type, avg_rank, impressions, clicks, cost 컬럼
         - date_label : "2026.03.18-2026.03.24" 형식
     """
-    raw = _read_raw(file_obj)
-
-    if raw is None or raw.empty:
-        return pd.DataFrame(), _default_week_label()
-
-    # ── 1행: 제목에서 날짜 추출 ──
-    title_str = " ".join(str(v) for v in raw.iloc[0].tolist() if pd.notna(v))
+    # ── 1행 제목에서 날짜 추출 (별도 읽기) ──
+    title_str = _read_title(file_obj)
     date_label = _extract_date_label(title_str) or _default_week_label()
 
-    # ── 2행: 컬럼명, 3행~: 데이터 ──
-    if len(raw) < 3:
+    # ── 데이터 읽기 (skiprows=1: 제목 건너뜀, 2행=컬럼명, 3행~=데이터) ──
+    try:
+        df = _read_raw(file_obj)
+    except Exception as e:
+        raise ValueError(f"파일을 읽을 수 없습니다: {e}")
+
+    if df is None or df.empty:
         return pd.DataFrame(), date_label
 
-    header_row = raw.iloc[1].tolist()
-    df = raw.iloc[2:].reset_index(drop=True).copy()
-    df.columns = [
-        str(h).strip() if (h is not None and str(h) != "nan") else f"_col{i}"
-        for i, h in enumerate(header_row)
-    ]
-    df = df.dropna(how="all")
+    # 컬럼명 공백 정리
+    df.columns = [str(c).strip() for c in df.columns]
+    df = df.dropna(how="all").reset_index(drop=True)
     if df.empty:
         return pd.DataFrame(), date_label
 
