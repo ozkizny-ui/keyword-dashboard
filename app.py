@@ -507,10 +507,66 @@ def _render_rank_tab(
             else:
                 st.info(f"📅 파일 날짜 범위: **{_date_label}**")
                 _summary = summarize_by_keyword(_df)
+
+                # ── 메타 정보 병합 (계절, 품목) ──
+                _meta_src_col = next(
+                    (c for c in ["품목", "카테고리", "복종"] if c in meta_df.columns), None
+                )
+                if not meta_df.empty and "keyword" in meta_df.columns:
+                    _meta_cols = ["keyword"]
+                    if "계절" in meta_df.columns:
+                        _meta_cols.append("계절")
+                    if _meta_src_col:
+                        _meta_cols.append(_meta_src_col)
+                    _meta_sub = meta_df[_meta_cols].copy()
+                    if _meta_src_col and _meta_src_col != "품목":
+                        _meta_sub = _meta_sub.rename(columns={_meta_src_col: "품목"})
+                    _summary = _summary.merge(_meta_sub, on="keyword", how="left")
+
+                # ── 필터 (계절 / 품목) ──
+                _fc1, _fc2 = st.columns(2)
+                with _fc1:
+                    _season_opts = ["전체"] + sorted(
+                        meta_df["계절"].dropna().unique().tolist()
+                    ) if "계절" in meta_df.columns else ["전체"]
+                    _sel_season = st.selectbox(
+                        "계절 필터", _season_opts,
+                        key=f"{uploader_key}_season_filter",
+                    )
+                with _fc2:
+                    _item_opts = ["전체"] + sorted(
+                        meta_df[_meta_src_col].dropna().unique().tolist()
+                    ) if _meta_src_col else ["전체"]
+                    _sel_item = st.selectbox(
+                        "품목 필터", _item_opts,
+                        key=f"{uploader_key}_item_filter",
+                    )
+
+                # 필터 적용
+                _filt = _summary.copy()
+                if _sel_season != "전체" and "계절" in _filt.columns:
+                    _filt = _filt[_filt["계절"].str.contains(_sel_season, na=False)]
+                if _sel_item != "전체" and "품목" in _filt.columns:
+                    _filt = _filt[_filt["품목"] == _sel_item]
+
+                # avg_rank 기준 정렬 → ⚠️ 표시
+                _filt = _filt.sort_values("avg_rank").copy()
+                _filt["keyword"] = _filt.apply(
+                    lambda r: f"⚠️ {r['keyword']}" if pd.to_numeric(r["avg_rank"], errors="coerce") >= 10 else r["keyword"],
+                    axis=1,
+                )
+
+                # 표시 컬럼: keyword, 계절, 품목, avg_rank, impressions, clicks, cost
+                _show = ["keyword"]
+                if "계절" in _filt.columns:
+                    _show.append("계절")
+                if "품목" in _filt.columns:
+                    _show.append("품목")
+                _show += [c for c in _RANK_SHOW_COLS if c not in ("keyword",) and c in _filt.columns]
+
                 _col_kr = {**_RANK_COL_KR, "avg_rank": f"평균노출순위 ({_date_label})"}
                 _disp = (
-                    _summary[[c for c in _RANK_SHOW_COLS if c in _summary.columns]]
-                    .sort_values("avg_rank")
+                    _filt[[c for c in _show if c in _filt.columns]]
                     .rename(columns=_col_kr)
                 )
                 st.metric("키워드 수", len(_disp))
