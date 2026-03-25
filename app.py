@@ -503,13 +503,17 @@ def _merge_meta(df: pd.DataFrame) -> pd.DataFrame:
 
 def _apply_rank_filters(df, season_key, item_key):
     """계절/품목 pills 필터 UI를 그리고 필터된 df를 반환."""
-    _s_opts = sorted(df["계절"].unique().tolist()) if "계절" in df.columns else []
-    _i_opts = sorted(df["품목"].unique().tolist()) if "품목" in df.columns else []
-    c1, c2 = st.columns(2)
-    with c1:
-        sel_s = _pills_or_multiselect("계절", _s_opts, _s_opts, season_key)
-    with c2:
-        sel_i = _pills_or_multiselect("품목", _i_opts, _i_opts, item_key)
+    _s_opts = sorted(df["계절"].dropna().unique().tolist()) if "계절" in df.columns else []
+    _i_opts = sorted(df["품목"].dropna().unique().tolist()) if "품목" in df.columns else []
+    sel_s, sel_i = [], []
+    if _s_opts or _i_opts:
+        c1, c2 = st.columns(2)
+        with c1:
+            if _s_opts:
+                sel_s = _pills_or_multiselect("계절", _s_opts, _s_opts, season_key)
+        with c2:
+            if _i_opts:
+                sel_i = _pills_or_multiselect("품목", _i_opts, _i_opts, item_key)
     out = df.copy()
     if sel_s and "계절" in out.columns:
         out = out[out["계절"].isin(sel_s)]
