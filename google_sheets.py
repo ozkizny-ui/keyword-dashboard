@@ -174,49 +174,72 @@ def read_trend_data() -> pd.DataFrame:
 
 def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
     """
-    순위 이력을 keyword | week1 | week2 | ... 구조로 누적 저장합니다.
-    df: keyword, avg_rank 컬럼 필요 (주간검색수 시트와 동일한 피벗 구조)
+    순위 이력을 계절 | 품목 | keyword | week1 | week2 | ... 구조로 누적 저장합니다.
+    df: keyword, avg_rank, 계절(optional), 품목(optional) 컬럼
     """
     client = _get_client()
     spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
     ws = _get_or_create_sheet(spreadsheet, sheet_name)
 
-    # keyword당 avg_rank 평균으로 집계 (동일 키워드 중복 방지)
-    rank_map = (
-        df[df["keyword"].notna() & df["avg_rank"].notna()]
-        .groupby("keyword")["avg_rank"]
-        .mean()
-        .round(1)
-        .to_dict()
-    )
-    if not rank_map:
+    rank_df = df[df["keyword"].notna()].copy()
+    rank_df = rank_df[pd.to_numeric(rank_df["avg_rank"], errors="coerce").notna()]
+    if rank_df.empty:
         return
+
+    # keyword별 집계: avg_rank 평균, 계절/품목은 첫 번째 값
+    rank_map = {}
+    season_map = {}
+    item_map = {}
+    for kw, grp in rank_df.groupby("keyword"):
+        rank_map[kw] = round(float(grp["avg_rank"].astype(float).mean()), 1)
+        if "계절" in grp.columns:
+            v = grp["계절"].iloc[0]
+            season_map[kw] = "" if pd.isna(v) else str(v)
+        if "품목" in grp.columns:
+            v = grp["품목"].iloc[0]
+            item_map[kw] = "" if pd.isna(v) else str(v)
 
     existing = ws.get_all_values()
 
     if not existing:
-        header = ["keyword", week_label]
-        rows = [header] + [[kw, val] for kw, val in rank_map.items()]
+        header = ["계절", "품목", "keyword", week_label]
+        rows = [header]
+        for kw, val in rank_map.items():
+            rows.append([season_map.get(kw, ""), item_map.get(kw, ""), kw, val])
         ws.update(range_name="A1", values=rows)
         return
 
     header = existing[0]
-    keyword_row = {r[0]: i for i, r in enumerate(existing) if i > 0}
+    kw_col_idx     = header.index("keyword") if "keyword" in header else 0
+    season_col_idx = header.index("계절")    if "계절"    in header else None
+    item_col_idx   = header.index("품목")    if "품목"    in header else None
+
+    keyword_row = {
+        r[kw_col_idx]: i
+        for i, r in enumerate(existing)
+        if i > 0 and len(r) > kw_col_idx
+    }
 
     if week_label in header:
-        col_idx = header.index(week_label)
+        date_col_idx = header.index(week_label)
     else:
-        col_idx = len(header)
-        ws.update_cell(1, col_idx + 1, week_label)
+        date_col_idx = len(header)
+        ws.update_cell(1, date_col_idx + 1, week_label)
 
     cells_to_update = []
     new_rows = []
     for kw, val in rank_map.items():
         if kw in keyword_row:
             row_idx = keyword_row[kw] + 1  # 1-based
-            cells_to_update.append(gspread.Cell(row_idx, col_idx + 1, val))
+            cells_to_update.append(gspread.Cell(row_idx, date_col_idx + 1, val))
         else:
-            new_row = [kw] + [""] * (col_idx - 1) + [val]
+            new_row = [""] * (date_col_idx + 1)
+            new_row[kw_col_idx] = kw
+            new_row[date_col_idx] = val
+            if season_col_idx is not None:
+                new_row[season_col_idx] = season_map.get(kw, "")
+            if item_col_idx is not None:
+                new_row[item_col_idx] = item_map.get(kw, "")
             new_rows.append(new_row)
 
     if cells_to_update:
@@ -226,7 +249,7 @@ def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
 
 
 def read_rank_history(sheet_name: str) -> pd.DataFrame:
-    """순위 이력 읽기 - keyword | week1 | week2 | ... 구조"""
+    """순위 이력 읽기 - 계절 | 품목 | keyword | week1 | week2 | ... 구조"""
     client = _get_client()
     spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
     try:
@@ -239,9 +262,15 @@ def read_rank_history(sheet_name: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(data[1:], columns=data[0])
-    df.rename(columns={df.columns[0]: "keyword"}, inplace=True)
-    for col in df.columns[1:]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # keyword 컬럼이 없으면 첫 번째 컬럼을 keyword로 (하위호환)
+    if "keyword" not in df.columns:
+        df.rename(columns={df.columns[0]: "keyword"}, inplace=True)
+
+    str_cols = {"keyword", "계절", "품목"}
+    for col in df.columns:
+        if col not in str_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
 

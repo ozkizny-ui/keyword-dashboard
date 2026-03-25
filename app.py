@@ -470,6 +470,54 @@ _RANK_COL_KR = {
 }
 
 
+def _pills_or_multiselect(label, options, default, key):
+    """st.pills (multi) 지원 시 사용, 없으면 st.multiselect 폴백."""
+    try:
+        return st.pills(label, options, selection_mode="multi", default=default, key=key)
+    except AttributeError:
+        return st.multiselect(label, options, default=default, key=key)
+
+
+def _merge_meta(df: pd.DataFrame) -> pd.DataFrame:
+    """summary df에 keywords_meta.csv의 계절/품목 정보를 병합한다."""
+    _src = next((c for c in ["품목", "카테고리", "복종"] if c in meta_df.columns), None)
+    if meta_df.empty or "keyword" not in meta_df.columns:
+        return df
+    _cols = ["keyword"]
+    if "계절" in meta_df.columns:
+        _cols.append("계절")
+    if _src:
+        _cols.append(_src)
+    _sub = meta_df[_cols].copy()
+    if _src and _src != "품목":
+        _sub = _sub.rename(columns={_src: "품목"})
+    merged = df.merge(_sub, on="keyword", how="left")
+    for mc in ["계절", "품목"]:
+        if mc in merged.columns:
+            merged[mc] = (
+                merged[mc].fillna("").replace("None", "")
+                .apply(lambda v: "미분류" if str(v).strip() == "" else v)
+            )
+    return merged
+
+
+def _apply_rank_filters(df, season_key, item_key):
+    """계절/품목 pills 필터 UI를 그리고 필터된 df를 반환."""
+    _s_opts = sorted(df["계절"].unique().tolist()) if "계절" in df.columns else []
+    _i_opts = sorted(df["품목"].unique().tolist()) if "품목" in df.columns else []
+    c1, c2 = st.columns(2)
+    with c1:
+        sel_s = _pills_or_multiselect("계절", _s_opts, _s_opts, season_key)
+    with c2:
+        sel_i = _pills_or_multiselect("품목", _i_opts, _i_opts, item_key)
+    out = df.copy()
+    if sel_s and "계절" in out.columns:
+        out = out[out["계절"].isin(sel_s)]
+    if sel_i and "품목" in out.columns:
+        out = out[out["품목"].isin(sel_i)]
+    return out
+
+
 def _render_rank_tab(
     upload_label: str,
     uploader_key: str,
@@ -479,16 +527,65 @@ def _render_rank_tab(
     load_fn,
     tab_label: str,
 ):
-    """순위 탭 공통 렌더링: 업로드 → 파싱 결과 → 저장 → 이력 테이블 & 그래프"""
+    """순위 탭 공통 렌더링"""
 
-    # ── 현재 주 날짜 범위 ──
     _n = datetime.now()
     _mon = _n - timedelta(days=_n.weekday())
     _sun = _mon + timedelta(days=6)
     _cur_week = f"{_mon.strftime('%Y.%m.%d')}-{_sun.strftime('%Y.%m.%d')}"
     st.caption(f"현재 주차: {_cur_week}")
 
-    # ══ 상단: 파일 업로드 ══
+    # ══ 섹션 1: Google Sheets 저장 데이터 ══
+    st.subheader(f"📊 {tab_label} 순위 현황")
+    _hist = load_fn()
+
+    if not _hist.empty:
+        _meta_cols  = {"keyword", "계절", "품목"}
+        _date_cols  = [c for c in _hist.columns if c not in _meta_cols]
+        _h_filt     = _apply_rank_filters(
+            _hist,
+            f"{uploader_key}_hist_season",
+            f"{uploader_key}_hist_item",
+        )
+        st.dataframe(_h_filt, use_container_width=True, hide_index=True, height=350)
+
+        # 그래프
+        if _date_cols:
+            _kw_opts = _h_filt["keyword"].dropna().tolist()
+            if _kw_opts:
+                _sel = st.multiselect(
+                    "키워드 선택 (순위 추이, 최대 10개)",
+                    _kw_opts,
+                    default=_kw_opts[:min(5, len(_kw_opts))],
+                    max_selections=10,
+                    key=f"{uploader_key}_hist_kw",
+                )
+                if _sel:
+                    _plot = (
+                        _h_filt[_h_filt["keyword"].isin(_sel)]
+                        .melt(id_vars="keyword", value_vars=_date_cols,
+                              var_name="날짜범위", value_name="순위")
+                    )
+                    _plot["순위"] = pd.to_numeric(_plot["순위"], errors="coerce")
+                    _plot = _plot.dropna(subset=["순위"])
+                    if not _plot.empty:
+                        _fig = px.line(
+                            _plot, x="날짜범위", y="순위", color="keyword",
+                            markers=True,
+                            title=f"{tab_label} 키워드별 순위 추이",
+                            template="plotly_white",
+                        )
+                        _fig.update_layout(
+                            yaxis=dict(title="순위 (1위가 위)", autorange="reversed", dtick=1),
+                            height=450, hovermode="x unified",
+                            legend=dict(orientation="h", y=-0.25),
+                        )
+                        st.plotly_chart(_fig, use_container_width=True)
+    else:
+        st.info("저장된 데이터가 없습니다. 아래에서 리포트를 업로드해주세요.")
+
+    # ══ 섹션 2: 새 리포트 업로드 ══
+    st.markdown("---")
     st.markdown(f"#### 📂 {upload_label}")
     uploaded = st.file_uploader(
         f"{upload_label} (CSV/Excel)",
@@ -499,166 +596,49 @@ def _render_rank_tab(
     if uploaded:
         try:
             _report, _date_label = parse_ad_report(uploaded, ad_type=ad_type)
-            # 해당 타입만 필터
             _df = _report[_report["ad_type"] == expected_type].copy() if not _report.empty else _report
 
             if _df.empty:
                 st.warning(f"{expected_type} 데이터가 없습니다. 파일을 확인해주세요.")
             else:
                 st.info(f"📅 파일 날짜 범위: **{_date_label}**")
-                _summary = summarize_by_keyword(_df)
+                _summary = _merge_meta(summarize_by_keyword(_df))
 
-                # ── 메타 정보 병합 (계절, 품목) ──
-                _meta_src_col = next(
-                    (c for c in ["품목", "카테고리", "복종"] if c in meta_df.columns), None
+                # 미리보기 필터
+                _pfilt = _apply_rank_filters(
+                    _summary,
+                    f"{uploader_key}_pu_season",
+                    f"{uploader_key}_pu_item",
                 )
-                if not meta_df.empty and "keyword" in meta_df.columns:
-                    _meta_cols = ["keyword"]
-                    if "계절" in meta_df.columns:
-                        _meta_cols.append("계절")
-                    if _meta_src_col:
-                        _meta_cols.append(_meta_src_col)
-                    _meta_sub = meta_df[_meta_cols].copy()
-                    if _meta_src_col and _meta_src_col != "품목":
-                        _meta_sub = _meta_sub.rename(columns={_meta_src_col: "품목"})
-                    _summary = _summary.merge(_meta_sub, on="keyword", how="left")
-                    # NaN/None/빈칸 → "미분류"
-                    for _mc in ["계절", "품목"]:
-                        if _mc in _summary.columns:
-                            _summary[_mc] = (
-                                _summary[_mc].fillna("").replace("None", "")
-                                .apply(lambda v: "미분류" if str(v).strip() == "" else v)
-                            )
 
-                # ── 필터 (계절 / 품목) - pills / multiselect ──
-                # 파싱 데이터 기준 고유값 추출
-                _season_opts = sorted(_summary["계절"].unique().tolist()) if "계절" in _summary.columns else []
-                _item_opts   = sorted(_summary["품목"].unique().tolist()) if "품목" in _summary.columns else []
-
-                _fc1, _fc2 = st.columns(2)
-                with _fc1:
-                    try:
-                        _sel_seasons = st.pills(
-                            "계절", _season_opts, selection_mode="multi",
-                            default=_season_opts,
-                            key=f"{uploader_key}_season_filter",
-                        )
-                    except AttributeError:
-                        _sel_seasons = st.multiselect(
-                            "계절", _season_opts, default=_season_opts,
-                            key=f"{uploader_key}_season_filter",
-                        )
-                with _fc2:
-                    try:
-                        _sel_items = st.pills(
-                            "품목", _item_opts, selection_mode="multi",
-                            default=_item_opts,
-                            key=f"{uploader_key}_item_filter",
-                        )
-                    except AttributeError:
-                        _sel_items = st.multiselect(
-                            "품목", _item_opts, default=_item_opts,
-                            key=f"{uploader_key}_item_filter",
-                        )
-
-                # 필터 적용 (미선택 시 전체, "미분류" 키워드는 항상 포함)
-                _filt = _summary.copy()
-                if _sel_seasons and "계절" in _filt.columns:
-                    _filt = _filt[_filt["계절"].isin(_sel_seasons)]
-                if _sel_items and "품목" in _filt.columns:
-                    _filt = _filt[_filt["품목"].isin(_sel_items)]
-
-                # avg_rank 기준 정렬 → ⚠️ 표시
-                _filt = _filt.sort_values("avg_rank").copy()
-                _filt["keyword"] = _filt.apply(
-                    lambda r: f"⚠️ {r['keyword']}" if pd.to_numeric(r["avg_rank"], errors="coerce") >= 10 else r["keyword"],
+                # avg_rank 정렬 → ⚠️ 표시
+                _pfilt = _pfilt.sort_values("avg_rank").copy()
+                _pfilt["keyword"] = _pfilt.apply(
+                    lambda r: f"⚠️ {r['keyword']}"
+                    if pd.to_numeric(r["avg_rank"], errors="coerce") >= 10
+                    else r["keyword"],
                     axis=1,
                 )
-
-                # 표시 컬럼: keyword, 계절, 품목, avg_rank, impressions, clicks, cost
-                _show = ["keyword"]
-                if "계절" in _filt.columns:
-                    _show.append("계절")
-                if "품목" in _filt.columns:
-                    _show.append("품목")
-                _show += [c for c in _RANK_SHOW_COLS if c not in ("keyword",) and c in _filt.columns]
-
+                _show = ["keyword"] + [c for c in ("계절", "품목") if c in _pfilt.columns]
+                _show += [c for c in _RANK_SHOW_COLS if c != "keyword" and c in _pfilt.columns]
                 _col_kr = {**_RANK_COL_KR, "avg_rank": f"평균노출순위 ({_date_label})"}
-                _disp = (
-                    _filt[[c for c in _show if c in _filt.columns]]
-                    .rename(columns=_col_kr)
-                )
+                _disp = _pfilt[[c for c in _show if c in _pfilt.columns]].rename(columns=_col_kr)
+
                 st.metric("키워드 수", len(_disp))
                 st.dataframe(_disp, use_container_width=True, hide_index=True, height=350)
 
                 if st.button(f"📤 Google Sheets에 저장 ({_date_label})", key=f"save_{uploader_key}"):
                     try:
-                        append_rank_history(_df, _date_label, sheet_name)
+                        append_rank_history(_summary, _date_label, sheet_name)
                         st.cache_data.clear()
                         st.success(f"저장 완료! ({_date_label})")
+                        st.rerun()
                     except Exception as _save_err:
                         st.error(f"저장 실패: {_save_err}")
 
         except Exception as _parse_err:
             st.error(f"파싱 실패: {_parse_err}")
             st.caption("파일 형식: 1행=제목(날짜포함), 2행=컬럼명, 3행~=데이터")
-
-    # ══ 하단: 저장된 이력 ══
-    st.markdown("---")
-    st.subheader(f"📈 {tab_label} 순위 이력")
-
-    _hist = load_fn()
-    if _hist.empty:
-        st.info("저장된 데이터가 없습니다. 위에서 리포트를 업로드하고 저장해주세요.")
-        return
-
-    _date_cols = [c for c in _hist.columns if c != "keyword"]
-    _kw_opts   = _hist["keyword"].dropna().tolist()
-
-    if not _kw_opts:
-        st.info("키워드 데이터가 없습니다.")
-        return
-
-    # 이력 전체 테이블
-    with st.expander("📋 전체 이력 데이터 보기"):
-        st.dataframe(_hist, use_container_width=True, hide_index=True, height=300)
-
-    # 키워드 선택 → 그래프
-    _sel = st.multiselect(
-        "키워드 선택 (최대 10개)",
-        _kw_opts,
-        default=_kw_opts[:min(5, len(_kw_opts))],
-        max_selections=10,
-        key=f"rank_kw_{uploader_key}",
-    )
-    if not _sel:
-        return
-
-    _plot = (
-        _hist[_hist["keyword"].isin(_sel)]
-        .melt(id_vars="keyword", value_vars=_date_cols, var_name="날짜범위", value_name="순위")
-    )
-    _plot["순위"] = pd.to_numeric(_plot["순위"], errors="coerce")
-    _plot = _plot.dropna(subset=["순위"])
-
-    if _plot.empty:
-        st.info("선택한 키워드에 저장된 순위 데이터가 없습니다.")
-        return
-
-    _fig = px.line(
-        _plot, x="날짜범위", y="순위", color="keyword",
-        markers=True,
-        title=f"{tab_label} 키워드별 순위 추이",
-        labels={"날짜범위": "날짜 범위", "순위": "순위"},
-        template="plotly_white",
-    )
-    _fig.update_layout(
-        yaxis=dict(title="순위 (1위가 위)", autorange="reversed", dtick=1),
-        height=450,
-        hovermode="x unified",
-        legend=dict(orientation="h", y=-0.25),
-    )
-    st.plotly_chart(_fig, use_container_width=True)
 
 
 # ── TAB 3: 쇼핑검색 순위 ──
