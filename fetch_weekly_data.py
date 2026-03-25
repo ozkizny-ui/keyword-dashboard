@@ -14,10 +14,11 @@ from google_sheets import append_weekly_data, save_trend_data
 
 
 def get_week_label(dt: datetime = None) -> str:
-    """ISO 주차 라벨 생성 (예: 2025-W10)"""
+    """주차 라벨 생성 - 해당 주 월~일 날짜 범위 (예: 2026.03.23-2026.03.29)"""
     dt = dt or datetime.now()
-    iso = dt.isocalendar()
-    return f"{iso.year}-W{iso.week:02d}"
+    monday = dt - timedelta(days=dt.weekday())
+    sunday = monday + timedelta(days=6)
+    return f"{monday.strftime('%Y.%m.%d')}-{sunday.strftime('%Y.%m.%d')}"
 
 
 def load_keywords() -> list[str]:
