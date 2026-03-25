@@ -522,32 +522,40 @@ def _render_rank_tab(
                     if _meta_src_col and _meta_src_col != "품목":
                         _meta_sub = _meta_sub.rename(columns={_meta_src_col: "품목"})
                     _summary = _summary.merge(_meta_sub, on="keyword", how="left")
+                    # NaN/None → 빈칸
+                    for _mc in ["계절", "품목"]:
+                        if _mc in _summary.columns:
+                            _summary[_mc] = _summary[_mc].fillna("").replace("None", "")
 
-                # ── 필터 (계절 / 품목) ──
+                # ── 필터 (계절 / 품목) - multiselect ──
                 _fc1, _fc2 = st.columns(2)
                 with _fc1:
-                    _season_opts = ["전체"] + sorted(
+                    _season_opts = sorted(
                         meta_df["계절"].dropna().unique().tolist()
-                    ) if "계절" in meta_df.columns else ["전체"]
-                    _sel_season = st.selectbox(
-                        "계절 필터", _season_opts,
+                    ) if "계절" in meta_df.columns else []
+                    _sel_seasons = st.multiselect(
+                        "계절 필터 (미선택 시 전체)",
+                        _season_opts,
+                        default=[],
                         key=f"{uploader_key}_season_filter",
                     )
                 with _fc2:
-                    _item_opts = ["전체"] + sorted(
+                    _item_opts = sorted(
                         meta_df[_meta_src_col].dropna().unique().tolist()
-                    ) if _meta_src_col else ["전체"]
-                    _sel_item = st.selectbox(
-                        "품목 필터", _item_opts,
+                    ) if _meta_src_col else []
+                    _sel_items = st.multiselect(
+                        "품목 필터 (미선택 시 전체)",
+                        _item_opts,
+                        default=[],
                         key=f"{uploader_key}_item_filter",
                     )
 
                 # 필터 적용
                 _filt = _summary.copy()
-                if _sel_season != "전체" and "계절" in _filt.columns:
-                    _filt = _filt[_filt["계절"].str.contains(_sel_season, na=False)]
-                if _sel_item != "전체" and "품목" in _filt.columns:
-                    _filt = _filt[_filt["품목"] == _sel_item]
+                if _sel_seasons and "계절" in _filt.columns:
+                    _filt = _filt[_filt["계절"].isin(_sel_seasons)]
+                if _sel_items and "품목" in _filt.columns:
+                    _filt = _filt[_filt["품목"].isin(_sel_items)]
 
                 # avg_rank 기준 정렬 → ⚠️ 표시
                 _filt = _filt.sort_values("avg_rank").copy()
