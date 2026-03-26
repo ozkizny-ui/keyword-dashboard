@@ -49,6 +49,7 @@ SHEET_NAME_RANK = "광고순위"
 SHEET_NAME_RANK_SHOPPING = "쇼핑검색순위"
 SHEET_NAME_RANK_POWERLINK = "파워링크순위"
 SHEET_NAME_RANK_BLOG = "블로그순위"
+SHEET_NAME_SETTINGS = "설정"
 
 # ──────────────────────────────────────────────
 # 프로젝트 설정

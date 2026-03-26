@@ -17,6 +17,7 @@ KST = timezone(timedelta(hours=9))
 from google_sheets import (
     read_weekly_data, read_trend_data, read_rank_data,
     read_rank_history, append_rank_history,
+    save_setting, read_setting,
 )
 from ad_rank_parser import parse_ad_report, summarize_by_keyword
 
@@ -82,6 +83,14 @@ def load_rank_powerlink():
 @st.cache_data(ttl=300)
 def load_rank_blog():
     return read_rank_history(config.SHEET_NAME_RANK_BLOG)
+
+@st.cache_data(ttl=300)
+def load_setting(key: str, fallback: str = "") -> str:
+    """'설정' 시트에서 값 읽기 (5분 캐시, API 호출 최소화)"""
+    try:
+        return read_setting(key, fallback)
+    except Exception:
+        return fallback
 
 @st.cache_data(ttl=3600)
 def load_meta():
@@ -288,29 +297,40 @@ with tab1:
 
         st.markdown("---")
 
-        # ── 급상승/급하락 TOP 10
-        if not ranked.empty:
+        # ── 기간 필터 (급상승/급하락 · 그래프 · 테이블 공통)
+        period_week_cols = _period_slider(week_cols, "weekly_period", "weekly_period_slider")
+        period_filtered  = filtered[["keyword"] + period_week_cols]
+        period_changes   = calc_changes(period_filtered)
+        if "변화율" in period_changes.columns:
+            period_changes["변화율"] = pd.to_numeric(period_changes["변화율"], errors="coerce")
+        period_ranked = (
+            period_changes.dropna(subset=["변화율"])
+            if "변화율" in period_changes.columns else pd.DataFrame()
+        )
+
+        # ── 급상승/급하락 TOP 10 (선택 기간 마지막 2주 기준)
+        if not period_ranked.empty:
             col_left, col_right = st.columns(2)
             with col_left:
                 st.subheader("🔥 급상승 TOP 10")
-                top_up = ranked.nlargest(10, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
+                top_up = period_ranked.nlargest(10, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
                 st.dataframe(top_up, use_container_width=True, hide_index=True)
             with col_right:
                 st.subheader("❄️ 급하락 TOP 10")
-                top_down = ranked.nsmallest(10, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
+                top_down = period_ranked.nsmallest(10, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
                 st.dataframe(top_down, use_container_width=True, hide_index=True)
 
         # ── 키워드별 검색수 순위
         st.markdown("---")
         st.subheader("🔢 키워드별 검색수 순위")
-        if week_cols:
-            _rank_tbl = filtered[["keyword", week_cols[-1]]].copy()
+        if period_week_cols:
+            _rank_tbl = period_filtered[["keyword", period_week_cols[-1]]].copy()
             _rank_tbl.columns = ["keyword", "이번주"]
             _rank_tbl = _rank_tbl.sort_values("이번주", ascending=False).reset_index(drop=True)
             _rank_tbl.insert(0, "순위", range(1, len(_rank_tbl) + 1))
-            if len(week_cols) >= 2:
-                _prev_map = filtered.set_index("keyword")[week_cols[-2]].to_dict()
-                _rate_map = changes.set_index("keyword")["변화율"].to_dict() if "변화율" in changes.columns else {}
+            if len(period_week_cols) >= 2:
+                _prev_map = period_filtered.set_index("keyword")[period_week_cols[-2]].to_dict()
+                _rate_map = period_changes.set_index("keyword")["변화율"].to_dict() if "변화율" in period_changes.columns else {}
                 _rank_tbl["지난주"] = _rank_tbl["keyword"].map(_prev_map).fillna(0).astype(int)
                 _rank_tbl["변화율"] = _rank_tbl["keyword"].map(_rate_map).apply(
                     lambda x: f"{x:+.1f}%" if pd.notna(x) else "-"
@@ -322,14 +342,14 @@ with tab1:
 
         st.markdown("---")
 
-        # 키워드 선택 → 주간 추이 그래프
+        # ── 키워드 주간 추이 그래프 (선택 기간)
         st.subheader("📈 키워드 주간 추이")
-        kw_options = filtered["keyword"].tolist()
+        kw_options = period_filtered["keyword"].tolist()
         selected_kws = st.multiselect("키워드 선택 (최대 10개)", kw_options, default=kw_options[:3], max_selections=10)
 
         if selected_kws:
-            chart_data = filtered[filtered["keyword"].isin(selected_kws)].melt(
-                id_vars="keyword", value_vars=week_cols, var_name="주차", value_name="검색수"
+            chart_data = period_filtered[period_filtered["keyword"].isin(selected_kws)].melt(
+                id_vars="keyword", value_vars=period_week_cols, var_name="주차", value_name="검색수"
             )
             fig = px.line(
                 chart_data, x="주차", y="검색수", color="keyword",
@@ -342,9 +362,9 @@ with tab1:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-        # 전체 데이터 테이블
+        # ── 전체 데이터 테이블 (선택 기간)
         st.subheader("📋 전체 데이터")
-        st.dataframe(filtered, use_container_width=True, hide_index=True, height=400)
+        st.dataframe(period_filtered, use_container_width=True, hide_index=True, height=400)
 
 
 # ── TAB 2: 연간 트렌드 ──
@@ -518,6 +538,44 @@ def _multiselect_filter(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
     return out
 
 
+def _period_slider(week_cols: list, setting_prefix: str, slider_key: str) -> list:
+    """기간 선택 슬라이더를 렌더링하고 선택된 주차 컬럼 목록을 반환.
+    변경 시 Google Sheets '설정' 시트에 자동 저장."""
+    if len(week_cols) < 2:
+        return week_cols
+
+    saved_start = load_setting(f"{setting_prefix}_start", week_cols[0])
+    saved_end   = load_setting(f"{setting_prefix}_end",   week_cols[-1])
+    def_start = saved_start if saved_start in week_cols else week_cols[0]
+    def_end   = saved_end   if saved_end   in week_cols else week_cols[-1]
+    # 인덱스 역전 방지
+    if week_cols.index(def_start) > week_cols.index(def_end):
+        def_start, def_end = week_cols[0], week_cols[-1]
+
+    sel = st.select_slider(
+        "📅 기간 선택",
+        options=week_cols,
+        value=(def_start, def_end),
+        key=slider_key,
+    )
+    start, end = sel
+
+    # 이전 값과 비교해 변경 시에만 저장 (세션 내 중복 저장 방지)
+    _prev_key = f"__{slider_key}_prev"
+    if st.session_state.get(_prev_key) != sel:
+        if st.session_state.get(_prev_key) is not None:
+            try:
+                save_setting(f"{setting_prefix}_start", start)
+                save_setting(f"{setting_prefix}_end", end)
+            except Exception:
+                pass
+        st.session_state[_prev_key] = sel
+
+    s_idx = week_cols.index(start)
+    e_idx = week_cols.index(end)
+    return week_cols[s_idx:e_idx + 1]
+
+
 def _render_rank_tab(
     upload_label: str,
     uploader_key: str,
@@ -597,6 +655,16 @@ def _render_rank_tab(
             _date_cols = [c for c in _hist.columns if c not in _meta_cols]
             _col_order = ["keyword"] + [c for c in ("계절", "품목") if c in _hist.columns] + _date_cols
             _hist = _hist[[c for c in _col_order if c in _hist.columns]]
+
+            # 기간 필터
+            if _date_cols:
+                _sel_date_cols = _period_slider(
+                    _date_cols,
+                    f"{uploader_key}_period",
+                    f"{uploader_key}_period_slider",
+                )
+                _non_date = [c for c in _hist.columns if c not in _date_cols]
+                _hist = _hist[_non_date + _sel_date_cols]
 
             # 계절/품목 필터 (테이블 위 multiselect)
             _hist = _multiselect_filter(_hist, f"{uploader_key}_hist")

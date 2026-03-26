@@ -294,6 +294,44 @@ def read_rank_history(sheet_name: str) -> pd.DataFrame:
     return df
 
 
+def save_setting(key: str, value: str):
+    """'설정' 시트에 key-value 저장. 기존 키면 업데이트, 없으면 추가."""
+    client = _get_client()
+    spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
+    ws = _get_or_create_sheet(spreadsheet, config.SHEET_NAME_SETTINGS)
+    existing = ws.get_all_values()
+
+    if not existing:
+        ws.update(range_name="A1", values=[["key", "value"], [key, str(value)]])
+        return
+
+    for i, row in enumerate(existing):
+        if i == 0:
+            continue
+        if row and row[0] == key:
+            ws.update_cell(i + 1, 2, str(value))
+            return
+
+    ws.append_rows([[key, str(value)]])
+
+
+def read_setting(key: str, fallback: str = "") -> str:
+    """'설정' 시트에서 key의 value 읽기. 없으면 fallback 반환."""
+    client = _get_client()
+    spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
+    try:
+        ws = spreadsheet.worksheet(config.SHEET_NAME_SETTINGS)
+    except gspread.WorksheetNotFound:
+        return fallback
+
+    for i, row in enumerate(ws.get_all_values()):
+        if i == 0:
+            continue
+        if row and row[0] == key:
+            return row[1] if len(row) > 1 else fallback
+    return fallback
+
+
 def read_rank_data() -> pd.DataFrame:
     """Google Sheets에서 광고 순위 데이터를 읽어옵니다."""
     client = _get_client()
