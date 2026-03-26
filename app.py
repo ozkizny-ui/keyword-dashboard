@@ -207,6 +207,187 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 ])
 
 
+# ══════════════════════════════════════════════
+# 순위 탭 공통 헬퍼 (탭 코드보다 먼저 정의)
+# ══════════════════════════════════════════════
+
+_RANK_SHOW_COLS = ["keyword", "avg_rank", "impressions", "clicks", "cost"]
+_RANK_COL_KR = {
+    "keyword": "키워드", "avg_rank": "평균노출순위",
+    "impressions": "노출수", "clicks": "클릭수", "cost": "총비용",
+}
+
+
+def _merge_meta(df: pd.DataFrame) -> pd.DataFrame:
+    """df에 keywords_meta.csv의 계절/품목 정보를 병합. 매칭 안 되면 빈 문자열."""
+    _src = next((c for c in ["품목", "카테고리", "복종"] if c in meta_df.columns), None)
+    if meta_df.empty or "keyword" not in meta_df.columns:
+        return df
+    _cols = ["keyword"]
+    if "계절" in meta_df.columns:
+        _cols.append("계절")
+    if _src:
+        _cols.append(_src)
+    _sub = meta_df[_cols].copy()
+    if _src and _src != "품목":
+        _sub = _sub.rename(columns={_src: "품목"})
+    _drop = [c for c in ["계절", "품목"] if c in df.columns]
+    _base = df.drop(columns=_drop) if _drop else df
+    merged = _base.merge(_sub, on="keyword", how="left")
+    for mc in ["계절", "품목"]:
+        if mc in merged.columns:
+            merged[mc] = merged[mc].fillna("").replace("None", "").astype(str)
+            merged[mc] = merged[mc].apply(lambda v: "" if str(v).strip() == "" else v)
+    return merged
+
+
+def _multiselect_filter(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
+    """계절/품목 st.multiselect 필터 UI를 테이블 위에 렌더링하고 필터된 df를 반환."""
+    _s_opts = sorted(df["계절"].replace("", pd.NA).dropna().unique().tolist()) if "계절" in df.columns else []
+    _i_opts = sorted(df["품목"].replace("", pd.NA).dropna().unique().tolist()) if "품목" in df.columns else []
+    sel_s = _s_opts[:]
+    sel_i = _i_opts[:]
+    if _s_opts or _i_opts:
+        c1, c2 = st.columns(2)
+        with c1:
+            if _s_opts:
+                sel_s = st.multiselect("계절 필터", _s_opts, default=_s_opts, key=f"{key_prefix}_season")
+        with c2:
+            if _i_opts:
+                sel_i = st.multiselect("품목 필터", _i_opts, default=_i_opts, key=f"{key_prefix}_item")
+    out = df.copy()
+    if _s_opts and "계절" in out.columns:
+        out = out[out["계절"].isin(sel_s)]
+    if _i_opts and "품목" in out.columns:
+        out = out[out["품목"].isin(sel_i)]
+    return out
+
+
+def _period_slider(week_cols: list, setting_prefix: str, slider_key: str) -> list:
+    """기간 선택 슬라이더를 렌더링하고 선택된 주차 컬럼 목록을 반환.
+    변경 시 Google Sheets '설정' 시트에 자동 저장."""
+    if len(week_cols) < 2:
+        return week_cols
+
+    saved_start = load_setting(f"{setting_prefix}_start", week_cols[0])
+    saved_end   = load_setting(f"{setting_prefix}_end",   week_cols[-1])
+    def_start = saved_start if saved_start in week_cols else week_cols[0]
+    def_end   = saved_end   if saved_end   in week_cols else week_cols[-1]
+    if week_cols.index(def_start) > week_cols.index(def_end):
+        def_start, def_end = week_cols[0], week_cols[-1]
+
+    sel = st.select_slider(
+        "📅 기간 선택",
+        options=week_cols,
+        value=(def_start, def_end),
+        key=slider_key,
+    )
+    start, end = sel
+
+    _prev_key = f"__{slider_key}_prev"
+    if st.session_state.get(_prev_key) != sel:
+        if st.session_state.get(_prev_key) is not None:
+            try:
+                save_setting(f"{setting_prefix}_start", start)
+                save_setting(f"{setting_prefix}_end", end)
+            except Exception:
+                pass
+        st.session_state[_prev_key] = sel
+
+    s_idx = week_cols.index(start)
+    e_idx = week_cols.index(end)
+    return week_cols[s_idx:e_idx + 1]
+
+
+def _render_rank_tab(
+    upload_label: str,
+    uploader_key: str,
+    ad_type: str,
+    expected_type: str,
+    sheet_name: str,
+    load_fn,
+    tab_label: str,
+):
+    """순위 탭 공통 렌더링"""
+
+    # ══ 섹션 1: CSV 업로드 ══
+    st.markdown(f"#### 📂 {upload_label}")
+    uploaded = st.file_uploader(
+        f"{upload_label} (CSV/Excel)",
+        type=["csv", "xlsx", "xls"],
+        key=uploader_key,
+    )
+
+    st.markdown("---")
+
+    _parsed_summary = None
+    _date_label = None
+
+    if uploaded:
+        try:
+            _report, _date_label = parse_ad_report(uploaded, ad_type=ad_type)
+            _df = _report[_report["ad_type"] == expected_type].copy() if not _report.empty else _report
+            if _df.empty:
+                st.warning(f"{expected_type} 데이터가 없습니다. 파일을 확인해주세요.")
+            else:
+                st.caption(f"📅 파일 날짜 범위: {_date_label}")
+                _parsed_summary = _merge_meta(summarize_by_keyword(_df))
+        except Exception as _parse_err:
+            st.error(f"파싱 실패: {_parse_err}")
+            st.caption("파일 형식: 1행=제목(날짜포함), 2행=컬럼명, 3행~=데이터")
+
+    # ══ 섹션 2: 테이블 ══
+    if _parsed_summary is not None:
+        _disp = _parsed_summary.sort_values("avg_rank").copy()
+        _disp = _multiselect_filter(_disp, f"{uploader_key}_up")
+        _disp["keyword"] = _disp.apply(
+            lambda r: f"⚠️ {r['keyword']}"
+            if pd.to_numeric(r["avg_rank"], errors="coerce") >= 10
+            else r["keyword"],
+            axis=1,
+        )
+        _col_order = ["keyword"] + [c for c in ("계절", "품목") if c in _disp.columns]
+        _col_order += [c for c in _RANK_SHOW_COLS if c != "keyword" and c in _disp.columns]
+        _disp = _disp[[c for c in _col_order if c in _disp.columns]]
+        _disp = _disp.rename(columns={**_RANK_COL_KR, "avg_rank": f"평균노출순위 ({_date_label})"})
+
+        st.metric("키워드 수", len(_disp))
+        st.dataframe(_disp, use_container_width=True, hide_index=True, height=350)
+
+        # ══ 섹션 3: 저장 버튼 ══
+        if st.button(f"📤 Google Sheets에 저장 ({_date_label})", key=f"save_{uploader_key}"):
+            try:
+                append_rank_history(_parsed_summary, _date_label, sheet_name)
+                st.cache_data.clear()
+                st.success(f"저장 완료! ({_date_label})")
+                st.rerun()
+            except Exception as _save_err:
+                st.error(f"저장 실패: {_save_err}")
+
+    else:
+        _hist = load_fn()
+        if not _hist.empty:
+            _hist = _merge_meta(_hist)
+            _meta_cols = {"keyword", "계절", "품목"}
+            _date_cols = [c for c in _hist.columns if c not in _meta_cols]
+            _col_order = ["keyword"] + [c for c in ("계절", "품목") if c in _hist.columns] + _date_cols
+            _hist = _hist[[c for c in _col_order if c in _hist.columns]]
+
+            if _date_cols:
+                _sel_date_cols = _period_slider(
+                    _date_cols,
+                    f"{uploader_key}_period",
+                    f"{uploader_key}_period_slider",
+                )
+                _non_date = [c for c in _hist.columns if c not in _date_cols]
+                _hist = _hist[_non_date + _sel_date_cols]
+
+            _hist = _multiselect_filter(_hist, f"{uploader_key}_hist")
+            st.dataframe(_hist, use_container_width=True, hide_index=True, height=350)
+        else:
+            st.info("데이터가 없습니다. CSV 파일을 업로드해주세요.")
+
+
 # ── TAB 1: 주간 검색수 ──
 with tab1:
     weekly_df = load_weekly()
@@ -483,195 +664,6 @@ with tab2:
                             )
                             fig2.update_layout(height=350)
                             st.plotly_chart(fig2, use_container_width=True)
-
-
-_RANK_SHOW_COLS = ["keyword", "avg_rank", "impressions", "clicks", "cost"]
-_RANK_COL_KR = {
-    "keyword": "키워드", "avg_rank": "평균노출순위",
-    "impressions": "노출수", "clicks": "클릭수", "cost": "총비용",
-}
-
-
-def _merge_meta(df: pd.DataFrame) -> pd.DataFrame:
-    """df에 keywords_meta.csv의 계절/품목 정보를 병합. 매칭 안 되면 빈 문자열."""
-    _src = next((c for c in ["품목", "카테고리", "복종"] if c in meta_df.columns), None)
-    if meta_df.empty or "keyword" not in meta_df.columns:
-        return df
-    _cols = ["keyword"]
-    if "계절" in meta_df.columns:
-        _cols.append("계절")
-    if _src:
-        _cols.append(_src)
-    _sub = meta_df[_cols].copy()
-    if _src and _src != "품목":
-        _sub = _sub.rename(columns={_src: "품목"})
-    # 기존에 계절/품목 컬럼이 있으면 제거 후 재병합
-    _drop = [c for c in ["계절", "품목"] if c in df.columns]
-    _base = df.drop(columns=_drop) if _drop else df
-    merged = _base.merge(_sub, on="keyword", how="left")
-    for mc in ["계절", "품목"]:
-        if mc in merged.columns:
-            merged[mc] = merged[mc].fillna("").replace("None", "").astype(str)
-            merged[mc] = merged[mc].apply(lambda v: "" if str(v).strip() == "" else v)
-    return merged
-
-
-def _multiselect_filter(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
-    """계절/품목 st.multiselect 필터 UI를 테이블 위에 렌더링하고 필터된 df를 반환."""
-    _s_opts = sorted(df["계절"].replace("", pd.NA).dropna().unique().tolist()) if "계절" in df.columns else []
-    _i_opts = sorted(df["품목"].replace("", pd.NA).dropna().unique().tolist()) if "품목" in df.columns else []
-    sel_s = _s_opts[:]
-    sel_i = _i_opts[:]
-    if _s_opts or _i_opts:
-        c1, c2 = st.columns(2)
-        with c1:
-            if _s_opts:
-                sel_s = st.multiselect("계절 필터", _s_opts, default=_s_opts, key=f"{key_prefix}_season")
-        with c2:
-            if _i_opts:
-                sel_i = st.multiselect("품목 필터", _i_opts, default=_i_opts, key=f"{key_prefix}_item")
-    out = df.copy()
-    if _s_opts and "계절" in out.columns:
-        out = out[out["계절"].isin(sel_s)]
-    if _i_opts and "품목" in out.columns:
-        out = out[out["품목"].isin(sel_i)]
-    return out
-
-
-def _period_slider(week_cols: list, setting_prefix: str, slider_key: str) -> list:
-    """기간 선택 슬라이더를 렌더링하고 선택된 주차 컬럼 목록을 반환.
-    변경 시 Google Sheets '설정' 시트에 자동 저장."""
-    if len(week_cols) < 2:
-        return week_cols
-
-    saved_start = load_setting(f"{setting_prefix}_start", week_cols[0])
-    saved_end   = load_setting(f"{setting_prefix}_end",   week_cols[-1])
-    def_start = saved_start if saved_start in week_cols else week_cols[0]
-    def_end   = saved_end   if saved_end   in week_cols else week_cols[-1]
-    # 인덱스 역전 방지
-    if week_cols.index(def_start) > week_cols.index(def_end):
-        def_start, def_end = week_cols[0], week_cols[-1]
-
-    sel = st.select_slider(
-        "📅 기간 선택",
-        options=week_cols,
-        value=(def_start, def_end),
-        key=slider_key,
-    )
-    start, end = sel
-
-    # 이전 값과 비교해 변경 시에만 저장 (세션 내 중복 저장 방지)
-    _prev_key = f"__{slider_key}_prev"
-    if st.session_state.get(_prev_key) != sel:
-        if st.session_state.get(_prev_key) is not None:
-            try:
-                save_setting(f"{setting_prefix}_start", start)
-                save_setting(f"{setting_prefix}_end", end)
-            except Exception:
-                pass
-        st.session_state[_prev_key] = sel
-
-    s_idx = week_cols.index(start)
-    e_idx = week_cols.index(end)
-    return week_cols[s_idx:e_idx + 1]
-
-
-def _render_rank_tab(
-    upload_label: str,
-    uploader_key: str,
-    ad_type: str,
-    expected_type: str,
-    sheet_name: str,
-    load_fn,
-    tab_label: str,
-):
-    """순위 탭 공통 렌더링"""
-
-    # ══ 섹션 1: CSV 업로드 ══
-    st.markdown(f"#### 📂 {upload_label}")
-    uploaded = st.file_uploader(
-        f"{upload_label} (CSV/Excel)",
-        type=["csv", "xlsx", "xls"],
-        key=uploader_key,
-    )
-
-    st.markdown("---")
-
-    _parsed_summary = None
-    _date_label = None
-
-    if uploaded:
-        try:
-            _report, _date_label = parse_ad_report(uploaded, ad_type=ad_type)
-            _df = _report[_report["ad_type"] == expected_type].copy() if not _report.empty else _report
-            if _df.empty:
-                st.warning(f"{expected_type} 데이터가 없습니다. 파일을 확인해주세요.")
-            else:
-                st.caption(f"📅 파일 날짜 범위: {_date_label}")
-                _parsed_summary = _merge_meta(summarize_by_keyword(_df))
-        except Exception as _parse_err:
-            st.error(f"파싱 실패: {_parse_err}")
-            st.caption("파일 형식: 1행=제목(날짜포함), 2행=컬럼명, 3행~=데이터")
-
-    # ══ 섹션 2: 테이블 ══
-    if _parsed_summary is not None:
-        # 업로드 파싱 결과 우선 표시
-        _disp = _parsed_summary.sort_values("avg_rank").copy()
-
-        # 계절/품목 필터 (테이블 위 multiselect)
-        _disp = _multiselect_filter(_disp, f"{uploader_key}_up")
-
-        # 순위 10위 밖 ⚠️ 마킹
-        _disp["keyword"] = _disp.apply(
-            lambda r: f"⚠️ {r['keyword']}"
-            if pd.to_numeric(r["avg_rank"], errors="coerce") >= 10
-            else r["keyword"],
-            axis=1,
-        )
-        _col_order = ["keyword"] + [c for c in ("계절", "품목") if c in _disp.columns]
-        _col_order += [c for c in _RANK_SHOW_COLS if c != "keyword" and c in _disp.columns]
-        _disp = _disp[[c for c in _col_order if c in _disp.columns]]
-        _disp = _disp.rename(columns={**_RANK_COL_KR, "avg_rank": f"평균노출순위 ({_date_label})"})
-
-        st.metric("키워드 수", len(_disp))
-        st.dataframe(_disp, use_container_width=True, hide_index=True, height=350)
-
-        # ══ 섹션 3: 저장 버튼 ══
-        if st.button(f"📤 Google Sheets에 저장 ({_date_label})", key=f"save_{uploader_key}"):
-            try:
-                append_rank_history(_parsed_summary, _date_label, sheet_name)
-                st.cache_data.clear()
-                st.success(f"저장 완료! ({_date_label})")
-                st.rerun()
-            except Exception as _save_err:
-                st.error(f"저장 실패: {_save_err}")
-
-    else:
-        # Google Sheets 저장 데이터 표시
-        _hist = load_fn()
-        if not _hist.empty:
-            _hist = _merge_meta(_hist)
-            _meta_cols = {"keyword", "계절", "품목"}
-            _date_cols = [c for c in _hist.columns if c not in _meta_cols]
-            _col_order = ["keyword"] + [c for c in ("계절", "품목") if c in _hist.columns] + _date_cols
-            _hist = _hist[[c for c in _col_order if c in _hist.columns]]
-
-            # 기간 필터
-            if _date_cols:
-                _sel_date_cols = _period_slider(
-                    _date_cols,
-                    f"{uploader_key}_period",
-                    f"{uploader_key}_period_slider",
-                )
-                _non_date = [c for c in _hist.columns if c not in _date_cols]
-                _hist = _hist[_non_date + _sel_date_cols]
-
-            # 계절/품목 필터 (테이블 위 multiselect)
-            _hist = _multiselect_filter(_hist, f"{uploader_key}_hist")
-
-            st.dataframe(_hist, use_container_width=True, hide_index=True, height=350)
-        else:
-            st.info("데이터가 없습니다. CSV 파일을 업로드해주세요.")
 
 
 # ── TAB 3: 쇼핑검색 순위 ──
