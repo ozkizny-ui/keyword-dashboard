@@ -97,7 +97,7 @@ def load_meta():
     try:
         return pd.read_csv(config.KEYWORDS_META_FILE, encoding="utf-8-sig")
     except FileNotFoundError:
-        return pd.DataFrame(columns=["keyword", "계절", "복종", "성별"])
+        return pd.DataFrame(columns=["keyword", "계절", "카테고리", "성별"])
 
 
 def calc_changes(df: pd.DataFrame) -> pd.DataFrame:
@@ -155,9 +155,9 @@ meta_df = load_meta()
 seasons = ["전체"] + sorted(meta_df["계절"].dropna().unique().tolist()) if "계절" in meta_df.columns else ["전체"]
 selected_season = st.sidebar.selectbox("계절", seasons)
 
-# 필터 2: 복종
-categories = ["전체"] + sorted(meta_df["복종"].dropna().unique().tolist()) if "복종" in meta_df.columns else ["전체"]
-selected_category = st.sidebar.selectbox("복종 (의류/신발/잡화)", categories)
+# 필터 2: 카테고리
+categories = ["전체"] + sorted(meta_df["카테고리"].dropna().unique().tolist()) if "카테고리" in meta_df.columns else ["전체"]
+selected_category = st.sidebar.selectbox("카테고리", categories)
 
 # 필터 3: 성별
 genders = ["전체"] + sorted(meta_df["성별"].dropna().unique().tolist()) if "성별" in meta_df.columns else ["전체"]
@@ -176,7 +176,7 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         if selected_season != "전체":
             mask &= meta_df["계절"].str.contains(selected_season, na=False)
         if selected_category != "전체":
-            mask &= meta_df["복종"] == selected_category
+            mask &= meta_df["카테고리"] == selected_category
         if selected_gender != "전체":
             mask &= meta_df["성별"] == selected_gender
         filtered_keywords = meta_df[mask]["keyword"].tolist()
@@ -220,7 +220,7 @@ _RANK_COL_KR = {
 
 def _merge_meta(df: pd.DataFrame) -> pd.DataFrame:
     """df에 keywords_meta.csv의 계절/품목 정보를 병합. 매칭 안 되면 빈 문자열."""
-    _src = next((c for c in ["품목", "카테고리", "복종"] if c in meta_df.columns), None)
+    _src = next((c for c in ["품목", "카테고리"] if c in meta_df.columns), None)
     if meta_df.empty or "keyword" not in meta_df.columns:
         return df
     _cols = ["keyword"]
@@ -716,19 +716,57 @@ with tab6:
         st.caption("버튼을 누르면 네이버 API에서 최신 데이터를 가져와 Google Sheets에 저장합니다.")
 
         if st.button("🚀 지금 데이터 수집 실행", type="primary"):
-            with st.spinner("데이터 수집 중... (약 2~5분 소요)"):
-                try:
-                    from fetch_weekly_data import main as fetch_main
-                    fetch_main()
+            progress = st.empty()
+            try:
+                import traceback
+                from fetch_weekly_data import load_keywords, get_week_label
+                from naver_api import fetch_search_volume, fetch_datalab_trend, estimate_weekly_search_volume
+                from google_sheets import append_weekly_data, save_trend_data
+
+                week_label = get_week_label()
+
+                # ── 1단계: 키워드 로드 ──
+                progress.info("⏳ 1/3 키워드 파일 로드 중...")
+                keywords = load_keywords()
+                progress.info(f"⏳ 1/3 키워드 {len(keywords)}개 로드 완료")
+
+                # ── 2단계: 검색수 조회 ──
+                progress.info(f"⏳ 2/3 네이버 검색광고 API 조회 중... ({len(keywords)}개 키워드)")
+                volume_df = fetch_search_volume(keywords)
+
+                if volume_df.empty:
+                    st.error("❌ 검색수 데이터를 가져오지 못했습니다. API 키를 확인하세요.")
+                else:
+                    # ── Google Sheets 저장 ──
+                    progress.info(f"⏳ 2/3 Google Sheets에 저장 중... ({week_label})")
+                    append_weekly_data(volume_df, week_label)
+                    progress.info(f"⏳ 2/3 주간 검색수 {len(volume_df)}개 키워드 저장 완료!")
+
+                    # ── 3단계: 트렌드 조회 ──
+                    progress.info(f"⏳ 3/3 데이터랩 트렌드 조회 중... (시간이 좀 걸립니다)")
+                    from datetime import datetime, timedelta, timezone
+                    _KST = timezone(timedelta(hours=9))
+                    end_date = datetime.now(_KST).strftime("%Y-%m-%d")
+                    start_date = (datetime.now(_KST) - timedelta(days=365)).strftime("%Y-%m-%d")
+                    trend_df = fetch_datalab_trend(keywords, start_date, end_date)
+
+                    if not trend_df.empty:
+                        estimated = estimate_weekly_search_volume(volume_df, trend_df)
+                        if not estimated.empty:
+                            save_trend_data(estimated)
+
                     st.cache_data.clear()
-                    st.success("수집 완료! 페이지를 새로고침합니다...")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"수집 실패: {e}")
+                    progress.empty()
+                    st.success(f"✅ 수집 완료! 주차: {week_label} | 키워드: {len(volume_df)}개 | 페이지를 새로고침(F5)하면 반영됩니다.")
+
+            except Exception as e:
+                progress.empty()
+                st.error(f"❌ 수집 실패: {e}")
+                st.code(traceback.format_exc())
 
     with col2:
         st.markdown("#### 📋 키워드 메타 정보")
-        st.caption("키워드별 계절/복종/성별 태그를 관리합니다.")
+        st.caption("키워드별 계절/카테고리/성별 태그를 관리합니다.")
 
         meta = load_meta()
         if meta.empty:
