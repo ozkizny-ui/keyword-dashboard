@@ -9,9 +9,11 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import config
+
+KST = timezone(timedelta(hours=9))
 from google_sheets import (
     read_weekly_data, read_trend_data, read_rank_data,
     read_rank_history, append_rank_history,
@@ -183,7 +185,7 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
 # ══════════════════════════════════════════════
 
 st.title("📊 오즈키즈 키워드 검색수 대시보드")
-st.caption(f"마지막 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')} | 브랜드: {config.BRAND_STORE_NAME}")
+st.caption(f"마지막 업데이트: {datetime.now(KST).strftime('%Y-%m-%d %H:%M')} | 브랜드: {config.BRAND_STORE_NAME}")
 
 # 탭 구성
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -213,7 +215,7 @@ with tab1:
         ranked = changes.dropna(subset=["변화율"]) if "변화율" in changes.columns else pd.DataFrame()
 
         # ── 현재 계절 판단
-        _month = datetime.now().month
+        _month = datetime.now(KST).month
         _season_map = {12: "겨울", 1: "겨울", 2: "겨울",
                        3: "봄",   4: "봄",   5: "봄",
                        6: "여름", 7: "여름", 8: "여름",
@@ -363,7 +365,7 @@ with tab2:
         st.subheader("📊 올해 vs 작년 검색 트렌드 비교")
         st.caption("네이버 데이터랩 비율 × 실제 검색수 기반 추정치")
 
-        this_year = datetime.now().year
+        this_year = datetime.now(KST).year
         last_year = this_year - 1
 
         # 날짜·연도·주차·검색수 파생 컬럼 생성

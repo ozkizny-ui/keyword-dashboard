@@ -6,19 +6,23 @@
 """
 import sys
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import config
 from naver_api import fetch_search_volume, fetch_datalab_trend, estimate_weekly_search_volume
 from google_sheets import append_weekly_data, save_trend_data
 
+KST = timezone(timedelta(hours=9))
+
 
 def get_week_label(dt: datetime = None) -> str:
-    """주차 라벨 생성 - 해당 주 월~일 날짜 범위 (예: 2026.03.23-2026.03.29)"""
-    dt = dt or datetime.now()
-    monday = dt - timedelta(days=dt.weekday())
-    sunday = monday + timedelta(days=6)
-    return f"{monday.strftime('%Y.%m.%d')}-{sunday.strftime('%Y.%m.%d')}"
+    """주차 라벨 생성 - 금~목 날짜 범위 (예: 2026.03.21-2026.03.27)"""
+    dt = dt or datetime.now(KST)
+    # 가장 최근 금요일 기준 (weekday: 0=월 … 4=금). 오늘이 금요일이면 오늘이 시작일.
+    days_since_friday = (dt.weekday() - 4) % 7
+    friday = dt - timedelta(days=days_since_friday)
+    thursday = friday + timedelta(days=6)
+    return f"{friday.strftime('%Y.%m.%d')}-{thursday.strftime('%Y.%m.%d')}"
 
 
 def load_keywords() -> list[str]:
@@ -37,7 +41,7 @@ def load_keywords() -> list[str]:
 def main():
     print(f"{'='*50}")
     print(f"  키워드 검색수 주간 수집 시작")
-    print(f"  실행 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  실행 시각: {datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')} KST")
     print(f"{'='*50}")
 
     week_label = get_week_label()
@@ -59,8 +63,8 @@ def main():
 
     # ── 3. 데이터랩 트렌드 조회 ──
     print(f"\n[3/3] 네이버 데이터랩 API - 연간 트렌드 조회...")
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+    end_date = datetime.now(KST).strftime("%Y-%m-%d")
+    start_date = (datetime.now(KST) - timedelta(days=365)).strftime("%Y-%m-%d")
 
     trend_df = fetch_datalab_trend(keywords, start_date, end_date)
     print(f"  → 트렌드 데이터 수집 완료 ({len(trend_df)} rows)")
