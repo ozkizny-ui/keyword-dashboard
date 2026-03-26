@@ -63,12 +63,19 @@ def append_weekly_data(df: pd.DataFrame, week_label: str):
         header = ["keyword", week_label]
         rows = [header]
         for _, row in df.iterrows():
-            rows.append([row["keyword"], row["totalSearchCount"]])
+            rows.append([str(row["keyword"]).strip(), row["totalSearchCount"]])
         ws.update(range_name="A1", values=rows)
         return
 
     header = existing[0]
-    keyword_map = {r[0]: i for i, r in enumerate(existing) if i > 0}
+    # 키워드 공백 제거 후 첫 번째 등장 행 기준으로 매핑 (중복 시 첫 행 업데이트)
+    keyword_map = {}
+    for i, r in enumerate(existing):
+        if i == 0:
+            continue
+        kw = str(r[0]).strip() if r else ""
+        if kw and kw not in keyword_map:
+            keyword_map[kw] = i
 
     if week_label in header:
         col_idx = header.index(week_label)
@@ -81,7 +88,7 @@ def append_weekly_data(df: pd.DataFrame, week_label: str):
     new_rows = []
 
     for _, row in df.iterrows():
-        kw = row["keyword"]
+        kw = str(row["keyword"]).strip()
         val = int(row["totalSearchCount"])
         if kw in keyword_map:
             row_idx = keyword_map[kw] + 1  # 1-based
@@ -89,6 +96,7 @@ def append_weekly_data(df: pd.DataFrame, week_label: str):
         else:
             new_row = [kw] + [""] * (col_idx - 1) + [val]
             new_rows.append(new_row)
+            keyword_map[kw] = len(existing) + len(new_rows) - 1  # 중복 방지
 
     if cells_to_update:
         ws.update_cells(cells_to_update)
@@ -142,6 +150,9 @@ def read_weekly_data() -> pd.DataFrame:
     df = pd.DataFrame(data[1:], columns=data[0])
     # 첫 번째 컬럼을 "keyword"로 정규화 (Sheets에서 헤더가 다를 수 있음)
     df.rename(columns={df.columns[0]: "keyword"}, inplace=True)
+    df["keyword"] = df["keyword"].str.strip()
+    # 중복 키워드 제거 (마지막 값 유지)
+    df = df.drop_duplicates(subset="keyword", keep="last").reset_index(drop=True)
     # 숫자 컬럼 변환
     for col in df.columns[1:]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
@@ -214,11 +225,14 @@ def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
     season_col_idx = header.index("계절")    if "계절"    in header else None
     item_col_idx   = header.index("품목")    if "품목"    in header else None
 
-    keyword_row = {
-        r[kw_col_idx]: i
-        for i, r in enumerate(existing)
-        if i > 0 and len(r) > kw_col_idx
-    }
+    # 키워드 공백 제거 후 첫 번째 등장 행 기준으로 매핑 (중복 시 첫 행 업데이트)
+    keyword_row = {}
+    for i, r in enumerate(existing):
+        if i == 0 or len(r) <= kw_col_idx:
+            continue
+        kw = str(r[kw_col_idx]).strip()
+        if kw and kw not in keyword_row:
+            keyword_row[kw] = i
 
     if week_label in header:
         date_col_idx = header.index(week_label)
@@ -229,6 +243,7 @@ def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
     cells_to_update = []
     new_rows = []
     for kw, val in rank_map.items():
+        kw = str(kw).strip()
         if kw in keyword_row:
             row_idx = keyword_row[kw] + 1  # 1-based
             cells_to_update.append(gspread.Cell(row_idx, date_col_idx + 1, val))
@@ -241,6 +256,7 @@ def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
             if item_col_idx is not None:
                 new_row[item_col_idx] = item_map.get(kw, "")
             new_rows.append(new_row)
+            keyword_row[kw] = len(existing) + len(new_rows) - 1  # 중복 방지
 
     if cells_to_update:
         ws.update_cells(cells_to_update)
@@ -266,6 +282,10 @@ def read_rank_history(sheet_name: str) -> pd.DataFrame:
     # keyword 컬럼이 없으면 첫 번째 컬럼을 keyword로 (하위호환)
     if "keyword" not in df.columns:
         df.rename(columns={df.columns[0]: "keyword"}, inplace=True)
+
+    df["keyword"] = df["keyword"].str.strip()
+    # 중복 키워드 제거 (마지막 값 유지)
+    df = df.drop_duplicates(subset="keyword", keep="last").reset_index(drop=True)
 
     str_cols = {"keyword", "계절", "품목"}
     for col in df.columns:
