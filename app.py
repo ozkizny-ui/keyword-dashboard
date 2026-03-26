@@ -291,11 +291,11 @@ with tab1:
             col_left, col_right = st.columns(2)
             with col_left:
                 st.subheader("🔥 급상승 TOP 10")
-                top_up = ranked.nlargest(10, "변화율")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
+                top_up = ranked.nlargest(10, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
                 st.dataframe(top_up, use_container_width=True, hide_index=True)
             with col_right:
                 st.subheader("❄️ 급하락 TOP 10")
-                top_down = ranked.nsmallest(10, "변화율")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
+                top_down = ranked.nsmallest(10, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
                 st.dataframe(top_down, use_container_width=True, hide_index=True)
 
         # ── 키워드별 검색수 순위
