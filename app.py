@@ -470,16 +470,8 @@ _RANK_COL_KR = {
 }
 
 
-def _pills_or_multiselect(label, options, default, key):
-    """st.pills (multi) 지원 시 사용, 없으면 st.multiselect 폴백."""
-    try:
-        return st.pills(label, options, selection_mode="multi", default=default, key=key)
-    except AttributeError:
-        return st.multiselect(label, options, default=default, key=key)
-
-
 def _merge_meta(df: pd.DataFrame) -> pd.DataFrame:
-    """summary df에 keywords_meta.csv의 계절/품목 정보를 병합한다."""
+    """df에 keywords_meta.csv의 계절/품목 정보를 병합. 매칭 안 되면 빈 문자열."""
     _src = next((c for c in ["품목", "카테고리", "복종"] if c in meta_df.columns), None)
     if meta_df.empty or "keyword" not in meta_df.columns:
         return df
@@ -491,33 +483,35 @@ def _merge_meta(df: pd.DataFrame) -> pd.DataFrame:
     _sub = meta_df[_cols].copy()
     if _src and _src != "품목":
         _sub = _sub.rename(columns={_src: "품목"})
-    merged = df.merge(_sub, on="keyword", how="left")
+    # 기존에 계절/품목 컬럼이 있으면 제거 후 재병합
+    _drop = [c for c in ["계절", "품목"] if c in df.columns]
+    _base = df.drop(columns=_drop) if _drop else df
+    merged = _base.merge(_sub, on="keyword", how="left")
     for mc in ["계절", "품목"]:
         if mc in merged.columns:
-            merged[mc] = (
-                merged[mc].fillna("").replace("None", "")
-                .apply(lambda v: "미분류" if str(v).strip() == "" else v)
-            )
+            merged[mc] = merged[mc].fillna("").replace("None", "").astype(str)
+            merged[mc] = merged[mc].apply(lambda v: "" if str(v).strip() == "" else v)
     return merged
 
 
-def _apply_rank_filters(df, season_key, item_key):
-    """계절/품목 pills 필터 UI를 그리고 필터된 df를 반환."""
-    _s_opts = sorted(df["계절"].dropna().unique().tolist()) if "계절" in df.columns else []
-    _i_opts = sorted(df["품목"].dropna().unique().tolist()) if "품목" in df.columns else []
-    sel_s, sel_i = [], []
+def _multiselect_filter(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
+    """계절/품목 st.multiselect 필터 UI를 테이블 위에 렌더링하고 필터된 df를 반환."""
+    _s_opts = sorted(df["계절"].replace("", pd.NA).dropna().unique().tolist()) if "계절" in df.columns else []
+    _i_opts = sorted(df["품목"].replace("", pd.NA).dropna().unique().tolist()) if "품목" in df.columns else []
+    sel_s = _s_opts[:]
+    sel_i = _i_opts[:]
     if _s_opts or _i_opts:
         c1, c2 = st.columns(2)
         with c1:
             if _s_opts:
-                sel_s = _pills_or_multiselect("계절", _s_opts, _s_opts, season_key)
+                sel_s = st.multiselect("계절 필터", _s_opts, default=_s_opts, key=f"{key_prefix}_season")
         with c2:
             if _i_opts:
-                sel_i = _pills_or_multiselect("품목", _i_opts, _i_opts, item_key)
+                sel_i = st.multiselect("품목 필터", _i_opts, default=_i_opts, key=f"{key_prefix}_item")
     out = df.copy()
-    if sel_s and "계절" in out.columns:
+    if _s_opts and "계절" in out.columns:
         out = out[out["계절"].isin(sel_s)]
-    if sel_i and "품목" in out.columns:
+    if _i_opts and "품목" in out.columns:
         out = out[out["품목"].isin(sel_i)]
     return out
 
@@ -533,63 +527,7 @@ def _render_rank_tab(
 ):
     """순위 탭 공통 렌더링"""
 
-    _n = datetime.now()
-    _mon = _n - timedelta(days=_n.weekday())
-    _sun = _mon + timedelta(days=6)
-    _cur_week = f"{_mon.strftime('%Y.%m.%d')}-{_sun.strftime('%Y.%m.%d')}"
-    st.caption(f"현재 주차: {_cur_week}")
-
-    # ══ 섹션 1: Google Sheets 저장 데이터 ══
-    st.subheader(f"📊 {tab_label} 순위 현황")
-    _hist = load_fn()
-
-    if not _hist.empty:
-        _meta_cols  = {"keyword", "계절", "품목"}
-        _date_cols  = [c for c in _hist.columns if c not in _meta_cols]
-        _h_filt     = _apply_rank_filters(
-            _hist,
-            f"{uploader_key}_hist_season",
-            f"{uploader_key}_hist_item",
-        )
-        st.dataframe(_h_filt, use_container_width=True, hide_index=True, height=350)
-
-        # 그래프
-        if _date_cols:
-            _kw_opts = _h_filt["keyword"].dropna().tolist()
-            if _kw_opts:
-                _sel = st.multiselect(
-                    "키워드 선택 (순위 추이, 최대 10개)",
-                    _kw_opts,
-                    default=_kw_opts[:min(5, len(_kw_opts))],
-                    max_selections=10,
-                    key=f"{uploader_key}_hist_kw",
-                )
-                if _sel:
-                    _plot = (
-                        _h_filt[_h_filt["keyword"].isin(_sel)]
-                        .melt(id_vars="keyword", value_vars=_date_cols,
-                              var_name="날짜범위", value_name="순위")
-                    )
-                    _plot["순위"] = pd.to_numeric(_plot["순위"], errors="coerce")
-                    _plot = _plot.dropna(subset=["순위"])
-                    if not _plot.empty:
-                        _fig = px.line(
-                            _plot, x="날짜범위", y="순위", color="keyword",
-                            markers=True,
-                            title=f"{tab_label} 키워드별 순위 추이",
-                            template="plotly_white",
-                        )
-                        _fig.update_layout(
-                            yaxis=dict(title="순위 (1위가 위)", autorange="reversed", dtick=1),
-                            height=450, hovermode="x unified",
-                            legend=dict(orientation="h", y=-0.25),
-                        )
-                        st.plotly_chart(_fig, use_container_width=True)
-    else:
-        st.info("저장된 데이터가 없습니다. 아래에서 리포트를 업로드해주세요.")
-
-    # ══ 섹션 2: 새 리포트 업로드 ══
-    st.markdown("---")
+    # ══ 섹션 1: CSV 업로드 ══
     st.markdown(f"#### 📂 {upload_label}")
     uploaded = st.file_uploader(
         f"{upload_label} (CSV/Excel)",
@@ -597,52 +535,73 @@ def _render_rank_tab(
         key=uploader_key,
     )
 
+    st.markdown("---")
+
+    _parsed_summary = None
+    _date_label = None
+
     if uploaded:
         try:
             _report, _date_label = parse_ad_report(uploaded, ad_type=ad_type)
             _df = _report[_report["ad_type"] == expected_type].copy() if not _report.empty else _report
-
             if _df.empty:
                 st.warning(f"{expected_type} 데이터가 없습니다. 파일을 확인해주세요.")
             else:
-                st.info(f"📅 파일 날짜 범위: **{_date_label}**")
-                _summary = _merge_meta(summarize_by_keyword(_df))
-
-                # 미리보기 필터
-                _pfilt = _apply_rank_filters(
-                    _summary,
-                    f"{uploader_key}_pu_season",
-                    f"{uploader_key}_pu_item",
-                )
-
-                # avg_rank 정렬 → ⚠️ 표시
-                _pfilt = _pfilt.sort_values("avg_rank").copy()
-                _pfilt["keyword"] = _pfilt.apply(
-                    lambda r: f"⚠️ {r['keyword']}"
-                    if pd.to_numeric(r["avg_rank"], errors="coerce") >= 10
-                    else r["keyword"],
-                    axis=1,
-                )
-                _show = ["keyword"] + [c for c in ("계절", "품목") if c in _pfilt.columns]
-                _show += [c for c in _RANK_SHOW_COLS if c != "keyword" and c in _pfilt.columns]
-                _col_kr = {**_RANK_COL_KR, "avg_rank": f"평균노출순위 ({_date_label})"}
-                _disp = _pfilt[[c for c in _show if c in _pfilt.columns]].rename(columns=_col_kr)
-
-                st.metric("키워드 수", len(_disp))
-                st.dataframe(_disp, use_container_width=True, hide_index=True, height=350)
-
-                if st.button(f"📤 Google Sheets에 저장 ({_date_label})", key=f"save_{uploader_key}"):
-                    try:
-                        append_rank_history(_summary, _date_label, sheet_name)
-                        st.cache_data.clear()
-                        st.success(f"저장 완료! ({_date_label})")
-                        st.rerun()
-                    except Exception as _save_err:
-                        st.error(f"저장 실패: {_save_err}")
-
+                st.caption(f"📅 파일 날짜 범위: {_date_label}")
+                _parsed_summary = _merge_meta(summarize_by_keyword(_df))
         except Exception as _parse_err:
             st.error(f"파싱 실패: {_parse_err}")
             st.caption("파일 형식: 1행=제목(날짜포함), 2행=컬럼명, 3행~=데이터")
+
+    # ══ 섹션 2: 테이블 ══
+    if _parsed_summary is not None:
+        # 업로드 파싱 결과 우선 표시
+        _disp = _parsed_summary.sort_values("avg_rank").copy()
+
+        # 계절/품목 필터 (테이블 위 multiselect)
+        _disp = _multiselect_filter(_disp, f"{uploader_key}_up")
+
+        # 순위 10위 밖 ⚠️ 마킹
+        _disp["keyword"] = _disp.apply(
+            lambda r: f"⚠️ {r['keyword']}"
+            if pd.to_numeric(r["avg_rank"], errors="coerce") >= 10
+            else r["keyword"],
+            axis=1,
+        )
+        _col_order = ["keyword"] + [c for c in ("계절", "품목") if c in _disp.columns]
+        _col_order += [c for c in _RANK_SHOW_COLS if c != "keyword" and c in _disp.columns]
+        _disp = _disp[[c for c in _col_order if c in _disp.columns]]
+        _disp = _disp.rename(columns={**_RANK_COL_KR, "avg_rank": f"평균노출순위 ({_date_label})"})
+
+        st.metric("키워드 수", len(_disp))
+        st.dataframe(_disp, use_container_width=True, hide_index=True, height=350)
+
+        # ══ 섹션 3: 저장 버튼 ══
+        if st.button(f"📤 Google Sheets에 저장 ({_date_label})", key=f"save_{uploader_key}"):
+            try:
+                append_rank_history(_parsed_summary, _date_label, sheet_name)
+                st.cache_data.clear()
+                st.success(f"저장 완료! ({_date_label})")
+                st.rerun()
+            except Exception as _save_err:
+                st.error(f"저장 실패: {_save_err}")
+
+    else:
+        # Google Sheets 저장 데이터 표시
+        _hist = load_fn()
+        if not _hist.empty:
+            _hist = _merge_meta(_hist)
+            _meta_cols = {"keyword", "계절", "품목"}
+            _date_cols = [c for c in _hist.columns if c not in _meta_cols]
+            _col_order = ["keyword"] + [c for c in ("계절", "품목") if c in _hist.columns] + _date_cols
+            _hist = _hist[[c for c in _col_order if c in _hist.columns]]
+
+            # 계절/품목 필터 (테이블 위 multiselect)
+            _hist = _multiselect_filter(_hist, f"{uploader_key}_hist")
+
+            st.dataframe(_hist, use_container_width=True, hide_index=True, height=350)
+        else:
+            st.info("데이터가 없습니다. CSV 파일을 업로드해주세요.")
 
 
 # ── TAB 3: 쇼핑검색 순위 ──
