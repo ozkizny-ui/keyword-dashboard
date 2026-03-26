@@ -102,7 +102,7 @@ def main():
         # 최대 재시도 후에도 남은 빈칸 확인
         remaining = find_blank_keywords(keywords, week_label)
         if remaining:
-            print(f"\n  ⚠️ 재시도 {MAX_RETRIES}회 후에도 빈칸 키워드 {len(remaining)}개 남음 (검색수 없는 키워드로 간주):")
+            print(f"\n  [WARN] 재시도 {MAX_RETRIES}회 후에도 빈칸 키워드 {len(remaining)}개 남음 (검색수 없는 키워드로 간주):")
             for kw in remaining:
                 print(f"    - {kw}")
 

@@ -85,7 +85,7 @@ def fetch_search_volume(keywords: list[str]) -> pd.DataFrame:
     # '< 10' 같은 값을 숫자로 변환
     for col in ["monthlyPcQcCnt", "monthlyMobileQcCnt"]:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col].replace("< 10", 5), errors="coerce").fillna(0).astype(int)
+            df[col] = pd.to_numeric(df[col].replace("< 10", 5).infer_objects(copy=False), errors="coerce").fillna(0).astype(int)
 
     df["totalSearchCount"] = df["monthlyPcQcCnt"] + df["monthlyMobileQcCnt"]
 

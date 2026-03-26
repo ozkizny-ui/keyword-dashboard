@@ -143,8 +143,8 @@ def read_weekly_data() -> pd.DataFrame:
     # 첫 번째 컬럼을 "keyword"로 정규화 (Sheets에서 헤더가 다를 수 있음)
     df.rename(columns={df.columns[0]: "keyword"}, inplace=True)
     df["keyword"] = df["keyword"].str.strip()
-    # 중복 키워드 제거 (마지막 값 유지)
-    df = df.drop_duplicates(subset="keyword", keep="last").reset_index(drop=True)
+    # 중복 키워드 제거 (첫 번째 값 유지 - 쓰기 경로와 동일하게 첫 행 기준)
+    df = df.drop_duplicates(subset="keyword", keep="first").reset_index(drop=True)
     # 숫자 컬럼 변환
     for col in df.columns[1:]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
