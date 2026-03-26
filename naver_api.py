@@ -75,7 +75,7 @@ def fetch_search_volume(keywords: list[str]) -> pd.DataFrame:
                 if attempt < 2:
                     time.sleep(1)
                 else:
-                    print(f"[검색광고 API 오류] batch {batch_num}: {e}")
+                    print(f"[검색광고 API 오류] batch {batch_num} ({', '.join(batch)}): {e}")
         time.sleep(0.5)
 
     if not all_results:

@@ -10,9 +10,11 @@ from datetime import datetime, timedelta, timezone
 
 import config
 from naver_api import fetch_search_volume, fetch_datalab_trend, estimate_weekly_search_volume
-from google_sheets import append_weekly_data, save_trend_data
+from google_sheets import append_weekly_data, save_trend_data, read_weekly_data
 
 KST = timezone(timedelta(hours=9))
+
+MAX_RETRIES = 2  # 빈칸 키워드 재시도 횟수
 
 
 def get_week_label(dt: datetime = None) -> str:
@@ -38,6 +40,23 @@ def load_keywords() -> list[str]:
         sys.exit(1)
 
 
+def find_blank_keywords(all_keywords: list[str], week_label: str) -> list[str]:
+    """Google Sheets에서 현재 주차 컬럼이 0이거나 누락된 키워드를 반환."""
+    df = read_weekly_data()
+    if df.empty or week_label not in df.columns:
+        return list(all_keywords)
+
+    in_sheets = set(df["keyword"].tolist())
+
+    # 시트에는 있지만 해당 주차 검색수가 0인 키워드
+    blank = df[df[week_label].fillna(0) == 0]["keyword"].tolist()
+
+    # 시트에 아예 없는 키워드
+    missing = [kw for kw in all_keywords if kw not in in_sheets]
+
+    return list(dict.fromkeys(blank + missing))  # 순서 유지 + 중복 제거
+
+
 def main():
     print(f"{'='*50}")
     print(f"  키워드 검색수 주간 수집 시작")
@@ -60,6 +79,32 @@ def main():
     print(f"\n[2/3] Google Sheets에 주간 데이터 저장 ({week_label})...")
     append_weekly_data(volume_df, week_label)
     print(f"  → 저장 완료")
+
+    # ── 2-1. 빈칸 키워드 재시도 (최대 {MAX_RETRIES}회) ──
+    for retry in range(1, MAX_RETRIES + 1):
+        blank_kws = find_blank_keywords(keywords, week_label)
+        if not blank_kws:
+            print(f"  → 빈칸 키워드 없음. 재시도 불필요.")
+            break
+
+        print(f"\n  [재시도 {retry}/{MAX_RETRIES}] 빈칸 키워드 {len(blank_kws)}개 재수집:")
+        for kw in blank_kws:
+            print(f"    - {kw}")
+
+        retry_df = fetch_search_volume(blank_kws)
+        if not retry_df.empty:
+            append_weekly_data(retry_df, week_label)
+            print(f"  → 재시도 저장 완료 ({len(retry_df)}개)")
+        else:
+            print(f"  → 재시도 결과 없음")
+            break
+    else:
+        # 최대 재시도 후에도 남은 빈칸 확인
+        remaining = find_blank_keywords(keywords, week_label)
+        if remaining:
+            print(f"\n  ⚠️ 재시도 {MAX_RETRIES}회 후에도 빈칸 키워드 {len(remaining)}개 남음 (검색수 없는 키워드로 간주):")
+            for kw in remaining:
+                print(f"    - {kw}")
 
     # ── 3. 데이터랩 트렌드 조회 ──
     print(f"\n[3/3] 네이버 데이터랩 API - 연간 트렌드 조회...")
