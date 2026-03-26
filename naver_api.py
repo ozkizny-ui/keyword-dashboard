@@ -234,7 +234,7 @@ def estimate_weekly_search_volume(
             result_rows.append({
                 "date": row["date"],
                 "keyword": kw,
-                "estimated_weekly_volume": round(val * scale),
+                "estimated_weekly_volume": 0 if pd.isna(val * scale) else round(val * scale),
                 "ratio": val,
             })
 
