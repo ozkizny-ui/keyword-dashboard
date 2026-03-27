@@ -270,22 +270,18 @@ def _period_filter(week_cols: list, key_prefix: str) -> list:
 
     quick_sel = st.radio(
         "📅 기간 선택",
-        ["최근 2주", "최근 4주", "최근 8주", "최근 12주", "전체", "직접 선택"],
-        index=4,
+        ["최근 1주", "최근 4주", "최근 12주", "직접 선택"],
+        index=1,
         horizontal=True,
         key=f"{key_prefix}_quick",
     )
 
-    if quick_sel == "최근 2주":
-        return week_cols[-2:]
+    if quick_sel == "최근 1주":
+        return week_cols[-1:]
     elif quick_sel == "최근 4주":
         return week_cols[-4:]
-    elif quick_sel == "최근 8주":
-        return week_cols[-8:]
     elif quick_sel == "최근 12주":
         return week_cols[-12:]
-    elif quick_sel == "전체":
-        return week_cols
     else:  # 직접 선택
         col1, col2 = st.columns(2)
         with col1:
