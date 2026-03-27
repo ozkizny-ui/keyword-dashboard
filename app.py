@@ -167,6 +167,31 @@ selected_gender = st.sidebar.selectbox("성별", genders)
 keyword_search = st.sidebar.text_input("🔎 키워드 검색", placeholder="키워드명 입력...")
 
 
+def _get_season_top3(avail_kws: list, vol_df: pd.DataFrame) -> list:
+    """현재 시즌 키워드 중 최근 주차 검색수 TOP 3 반환.
+    시즌 키워드가 없으면 전체 검색수 TOP 3 반환."""
+    _month = datetime.now(KST).month
+    _season_map = {12: "겨울", 1: "겨울", 2: "겨울",
+                   3: "봄",   4: "봄",   5: "봄",
+                   6: "여름", 7: "여름", 8: "여름",
+                   9: "가을", 10: "가을", 11: "가을"}
+    season = _season_map[_month]
+
+    week_cols = [c for c in vol_df.columns if c != "keyword"]
+    vol_map = vol_df.set_index("keyword")[week_cols[-1]].to_dict() if week_cols else {}
+
+    season_kws = []
+    if not meta_df.empty and "계절" in meta_df.columns:
+        season_kws = [
+            kw for kw in meta_df[meta_df["계절"].str.contains(season, na=False)]["keyword"].tolist()
+            if kw in avail_kws
+        ]
+
+    pool = season_kws if season_kws else avail_kws
+    ranked = sorted(pool, key=lambda kw: vol_map.get(kw, 0), reverse=True)
+    return ranked[:3]
+
+
 def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
     """사이드바 필터 적용"""
     if meta_df.empty or "keyword" not in meta_df.columns:
@@ -557,7 +582,8 @@ with tab1:
         # ── 키워드 주간 추이 그래프 (선택 기간)
         st.subheader("📈 키워드 주간 추이")
         kw_options = period_filtered["keyword"].tolist()
-        selected_kws = st.multiselect("키워드 선택 (최대 10개)", kw_options, default=kw_options[:3], max_selections=10)
+        _default_kws = _get_season_top3(kw_options, filtered)
+        selected_kws = st.multiselect("키워드 선택 (최대 10개)", kw_options, default=_default_kws, max_selections=10)
 
         if selected_kws:
             chart_data = period_filtered[period_filtered["keyword"].isin(selected_kws)].melt(
@@ -621,10 +647,11 @@ with tab2:
         if not avail_kws:
             st.info("데이터 관리 탭에서 데이터 수집을 먼저 실행해주세요.")
         else:
+            _trend_defaults = _get_season_top3(avail_kws, load_weekly())
             trend_selected = st.multiselect(
                 "키워드 선택 (최대 5개)",
                 avail_kws,
-                default=avail_kws[:min(3, len(avail_kws))],
+                default=_trend_defaults,
                 max_selections=5,
                 key="trend_kw",
             )
