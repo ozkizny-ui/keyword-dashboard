@@ -263,40 +263,40 @@ def _multiselect_filter(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
     return out
 
 
-def _period_slider(week_cols: list, setting_prefix: str, slider_key: str) -> list:
-    """기간 선택 슬라이더를 렌더링하고 선택된 주차 컬럼 목록을 반환.
-    변경 시 Google Sheets '설정' 시트에 자동 저장."""
-    if len(week_cols) < 2:
+def _period_filter(week_cols: list, key_prefix: str) -> list:
+    """기간 선택 필터 UI를 렌더링하고 선택된 주차 컬럼 목록을 반환."""
+    if not week_cols:
         return week_cols
 
-    saved_start = load_setting(f"{setting_prefix}_start", week_cols[0])
-    saved_end   = load_setting(f"{setting_prefix}_end",   week_cols[-1])
-    def_start = saved_start if saved_start in week_cols else week_cols[0]
-    def_end   = saved_end   if saved_end   in week_cols else week_cols[-1]
-    if week_cols.index(def_start) > week_cols.index(def_end):
-        def_start, def_end = week_cols[0], week_cols[-1]
-
-    sel = st.select_slider(
+    quick_sel = st.radio(
         "📅 기간 선택",
-        options=week_cols,
-        value=(def_start, def_end),
-        key=slider_key,
+        ["최근 2주", "최근 4주", "최근 8주", "최근 12주", "전체", "직접 선택"],
+        index=4,
+        horizontal=True,
+        key=f"{key_prefix}_quick",
     )
-    start, end = sel
 
-    _prev_key = f"__{slider_key}_prev"
-    if st.session_state.get(_prev_key) != sel:
-        if st.session_state.get(_prev_key) is not None:
-            try:
-                save_setting(f"{setting_prefix}_start", start)
-                save_setting(f"{setting_prefix}_end", end)
-            except Exception:
-                pass
-        st.session_state[_prev_key] = sel
-
-    s_idx = week_cols.index(start)
-    e_idx = week_cols.index(end)
-    return week_cols[s_idx:e_idx + 1]
+    if quick_sel == "최근 2주":
+        return week_cols[-2:]
+    elif quick_sel == "최근 4주":
+        return week_cols[-4:]
+    elif quick_sel == "최근 8주":
+        return week_cols[-8:]
+    elif quick_sel == "최근 12주":
+        return week_cols[-12:]
+    elif quick_sel == "전체":
+        return week_cols
+    else:  # 직접 선택
+        col1, col2 = st.columns(2)
+        with col1:
+            start = st.selectbox("시작", week_cols, index=0, key=f"{key_prefix}_start")
+        with col2:
+            end = st.selectbox("끝", week_cols, index=len(week_cols) - 1, key=f"{key_prefix}_end")
+        s_idx = week_cols.index(start)
+        e_idx = week_cols.index(end)
+        if s_idx > e_idx:
+            s_idx, e_idx = e_idx, s_idx
+        return week_cols[s_idx:e_idx + 1]
 
 
 def _render_rank_tab(
@@ -374,11 +374,7 @@ def _render_rank_tab(
             _hist = _hist[[c for c in _col_order if c in _hist.columns]]
 
             if _date_cols:
-                _sel_date_cols = _period_slider(
-                    _date_cols,
-                    f"{uploader_key}_period",
-                    f"{uploader_key}_period_slider",
-                )
+                _sel_date_cols = _period_filter(_date_cols, uploader_key)
                 _non_date = [c for c in _hist.columns if c not in _date_cols]
                 _hist = _hist[_non_date + _sel_date_cols]
 
@@ -479,7 +475,7 @@ with tab1:
         st.markdown("---")
 
         # ── 기간 필터 (급상승/급하락 · 그래프 · 테이블 공통)
-        period_week_cols = _period_slider(week_cols, "weekly_period", "weekly_period_slider")
+        period_week_cols = _period_filter(week_cols, "weekly")
         period_filtered  = filtered[["keyword"] + period_week_cols]
         period_changes   = calc_changes(period_filtered)
         if "변화율" in period_changes.columns:
