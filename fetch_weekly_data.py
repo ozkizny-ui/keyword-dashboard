@@ -28,31 +28,48 @@ def get_week_label(dt: datetime = None) -> str:
 
 
 def load_keywords() -> list[str]:
-    """키워드 목록 로드"""
+    """키워드 목록 로드 (API 호출용 - keywords.xlsx)"""
     try:
         df = pd.read_excel(config.KEYWORDS_FILE)
         col = df.columns[0]
         keywords = df[col].dropna().astype(str).str.strip().tolist()
-        print(f"[INFO] {len(keywords)}개 키워드 로드 완료")
+        print(f"[INFO] keywords.xlsx: {len(keywords)}개 키워드 로드 완료")
         return keywords
     except FileNotFoundError:
         print(f"[ERROR] {config.KEYWORDS_FILE} 파일을 찾을 수 없습니다.")
         sys.exit(1)
 
 
-def find_blank_keywords(all_keywords: list[str], week_label: str) -> list[str]:
-    """Google Sheets에서 현재 주차 컬럼이 0이거나 누락된 키워드를 반환."""
+def load_meta_keywords() -> set[str]:
+    """keywords_meta.csv 전체 키워드 목록 로드 (저장 필터용)"""
+    try:
+        df = pd.read_csv(config.KEYWORDS_META_FILE)
+        keywords = set(df["keyword"].dropna().astype(str).str.strip().tolist())
+        print(f"[INFO] keywords_meta.csv: {len(keywords)}개 키워드 로드 완료")
+        return keywords
+    except FileNotFoundError:
+        print(f"[ERROR] {config.KEYWORDS_META_FILE} 파일을 찾을 수 없습니다.")
+        sys.exit(1)
+
+
+def find_blank_keywords(api_keywords: list[str], meta_keywords: set[str], week_label: str) -> list[str]:
+    """Google Sheets에서 현재 주차 컬럼이 0이거나 누락된 키워드를 반환.
+    api_keywords: API 호출에 사용할 키워드 목록 (keywords.xlsx)
+    meta_keywords: 저장 기준 키워드 집합 (keywords_meta.csv)
+    """
     df = read_weekly_data()
     if df.empty or week_label not in df.columns:
-        return list(all_keywords)
+        return list(api_keywords)
 
     in_sheets = set(df["keyword"].tolist())
 
-    # 시트에는 있지만 해당 주차 검색수가 0인 키워드
-    blank = df[df[week_label].fillna(0) == 0]["keyword"].tolist()
+    # 시트에는 있지만 해당 주차 검색수가 0인 키워드 (meta 기준 키워드만)
+    blank = df[(df[week_label].fillna(0) == 0) & (df["keyword"].isin(meta_keywords))]["keyword"].tolist()
 
-    # 시트에 아예 없는 키워드
-    missing = [kw for kw in all_keywords if kw not in in_sheets]
+    # meta_keywords 중 시트에 아예 없는 키워드 → API 호출 키워드 중 관련된 것만 재수집
+    missing_in_meta = meta_keywords - in_sheets
+    # API 키워드 중 누락된 meta 키워드를 커버할 수 있는 것들로 재수집
+    missing = [kw for kw in api_keywords if kw in missing_in_meta]
 
     return list(dict.fromkeys(blank + missing))  # 순서 유지 + 중복 제거
 
@@ -65,11 +82,16 @@ def main():
 
     week_label = get_week_label()
     keywords = load_keywords()
+    meta_keywords = load_meta_keywords()
 
     # ── 1. 월간 검색수 조회 ──
     print(f"\n[1/3] 네이버 검색광고 API - 월간 검색수 조회...")
     volume_df = fetch_search_volume(keywords)
-    print(f"  → {len(volume_df)}개 키워드 검색수 조회 완료")
+    print(f"  → API 응답: {len(volume_df)}개 키워드")
+
+    # keywords_meta.csv 기준으로 필터링
+    volume_df = volume_df[volume_df["keyword"].str.strip().isin(meta_keywords)].copy()
+    print(f"  → keywords_meta.csv 필터 후: {len(volume_df)}개 키워드 검색수 조회 완료")
 
     if volume_df.empty:
         print("[ERROR] 검색수 데이터를 가져오지 못했습니다. API 키를 확인하세요.")
@@ -82,7 +104,7 @@ def main():
 
     # ── 2-1. 빈칸 키워드 재시도 (최대 {MAX_RETRIES}회) ──
     for retry in range(1, MAX_RETRIES + 1):
-        blank_kws = find_blank_keywords(keywords, week_label)
+        blank_kws = find_blank_keywords(keywords, meta_keywords, week_label)
         if not blank_kws:
             print(f"  → 빈칸 키워드 없음. 재시도 불필요.")
             break
@@ -93,6 +115,7 @@ def main():
 
         retry_df = fetch_search_volume(blank_kws)
         if not retry_df.empty:
+            retry_df = retry_df[retry_df["keyword"].str.strip().isin(meta_keywords)].copy()
             append_weekly_data(retry_df, week_label)
             print(f"  → 재시도 저장 완료 ({len(retry_df)}개)")
         else:
@@ -100,7 +123,7 @@ def main():
             break
     else:
         # 최대 재시도 후에도 남은 빈칸 확인
-        remaining = find_blank_keywords(keywords, week_label)
+        remaining = find_blank_keywords(keywords, meta_keywords, week_label)
         if remaining:
             print(f"\n  [WARN] 재시도 {MAX_RETRIES}회 후에도 빈칸 키워드 {len(remaining)}개 남음 (검색수 없는 키워드로 간주):")
             for kw in remaining:

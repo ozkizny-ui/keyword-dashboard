@@ -89,9 +89,7 @@ def fetch_search_volume(keywords: list[str]) -> pd.DataFrame:
 
     df["totalSearchCount"] = df["monthlyPcQcCnt"] + df["monthlyMobileQcCnt"]
 
-    # 요청한 키워드만 필터 (API가 연관 키워드도 반환하므로)
-    keywords_lower = {kw.strip().lower() for kw in keywords}
-    df = df[df["relKeyword"].str.strip().str.lower().isin(keywords_lower)].copy()
+    # API가 반환한 모든 relKeyword 유지 (필터링은 호출 측에서 처리)
     df = df.rename(columns={"relKeyword": "keyword"})
 
     return df[["keyword", "monthlyPcQcCnt", "monthlyMobileQcCnt", "totalSearchCount"]].reset_index(drop=True)
