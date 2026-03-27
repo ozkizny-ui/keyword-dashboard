@@ -280,7 +280,8 @@ def _period_filter(week_cols: list, key_prefix: str) -> list:
         return week_cols[-2:]
 
     elif quick_sel == "작년 동일기간 비교":
-        # 최신 주의 시작일 기준으로 52주 전 컬럼 탐색
+        # 52주 전 컬럼을 기본값으로 계산
+        last_year_default = week_cols[0]
         try:
             latest_start = datetime.strptime(week_cols[-1].split("-")[0], "%Y.%m.%d")
             target = latest_start - timedelta(weeks=52)
@@ -294,11 +295,31 @@ def _period_filter(week_cols: list, key_prefix: str) -> list:
                 except ValueError:
                     continue
             if best_col:
-                return [best_col, week_cols[-1]]
+                last_year_default = best_col
         except (ValueError, IndexError):
             pass
-        st.caption("⚠️ 작년 동일기간 데이터가 없습니다. 전체 기간을 표시합니다.")
-        return week_cols
+        col1, col2 = st.columns(2)
+        with col1:
+            ly_start = st.selectbox(
+                "작년 기간",
+                week_cols,
+                index=week_cols.index(last_year_default),
+                key=f"{key_prefix}_ly_start",
+            )
+        with col2:
+            ly_end = st.selectbox(
+                "이번 기간",
+                week_cols,
+                index=len(week_cols) - 1,
+                key=f"{key_prefix}_ly_end",
+            )
+        s_idx = week_cols.index(ly_start)
+        e_idx = week_cols.index(ly_end)
+        if s_idx == e_idx:
+            return [week_cols[s_idx]]
+        if s_idx > e_idx:
+            s_idx, e_idx = e_idx, s_idx
+        return [week_cols[s_idx], week_cols[e_idx]]
 
     else:  # 직접 선택
         col1, col2 = st.columns(2)
