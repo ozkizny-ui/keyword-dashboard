@@ -270,18 +270,36 @@ def _period_filter(week_cols: list, key_prefix: str) -> list:
 
     quick_sel = st.radio(
         "📅 기간 선택",
-        ["최근 1주", "최근 4주", "최근 12주", "직접 선택"],
-        index=1,
+        ["최근 2주 비교", "작년 동일기간 비교", "직접 선택"],
+        index=0,
         horizontal=True,
         key=f"{key_prefix}_quick",
     )
 
-    if quick_sel == "최근 1주":
-        return week_cols[-1:]
-    elif quick_sel == "최근 4주":
-        return week_cols[-4:]
-    elif quick_sel == "최근 12주":
-        return week_cols[-12:]
+    if quick_sel == "최근 2주 비교":
+        return week_cols[-2:]
+
+    elif quick_sel == "작년 동일기간 비교":
+        # 최신 주의 시작일 기준으로 52주 전 컬럼 탐색
+        try:
+            latest_start = datetime.strptime(week_cols[-1].split("-")[0], "%Y.%m.%d")
+            target = latest_start - timedelta(weeks=52)
+            best_col, best_diff = None, None
+            for col in week_cols[:-1]:
+                try:
+                    col_start = datetime.strptime(col.split("-")[0], "%Y.%m.%d")
+                    diff = abs((col_start - target).days)
+                    if best_diff is None or diff < best_diff:
+                        best_diff, best_col = diff, col
+                except ValueError:
+                    continue
+            if best_col:
+                return [best_col, week_cols[-1]]
+        except (ValueError, IndexError):
+            pass
+        st.caption("⚠️ 작년 동일기간 데이터가 없습니다. 전체 기간을 표시합니다.")
+        return week_cols
+
     else:  # 직접 선택
         col1, col2 = st.columns(2)
         with col1:
