@@ -20,7 +20,7 @@ from google_sheets import (
     read_rank_history, append_rank_history,
     save_setting, read_setting,
 )
-from ad_rank_parser import parse_ad_report, summarize_by_keyword
+from ad_rank_parser import parse_ad_report, parse_ad_report_multiweek, summarize_by_keyword
 
 # ══════════════════════════════════════════════
 # 페이지 설정
@@ -438,6 +438,7 @@ def _render_rank_tab(
     load_fn,
     tab_label: str,
     use_styling: bool = False,
+    multi_week: bool = False,
 ):
     """순위 탭 공통 렌더링"""
 
@@ -453,22 +454,112 @@ def _render_rank_tab(
 
     _parsed_summary = None
     _date_label = None
+    _multi_week_data = None  # (merged_df, this_label, prev_label, save_summary)
 
     if uploaded:
-        try:
-            _report, _date_label = parse_ad_report(uploaded, ad_type=ad_type)
-            _df = _report[_report["ad_type"] == expected_type].copy() if not _report.empty else _report
-            if _df.empty:
-                st.warning(f"{expected_type} 데이터가 없습니다. 파일을 확인해주세요.")
-            else:
-                st.caption(f"📅 파일 날짜 범위: {_date_label}")
-                _parsed_summary = _merge_meta(summarize_by_keyword(_df))
-        except Exception as _parse_err:
-            st.error(f"파싱 실패: {_parse_err}")
-            st.caption("파일 형식: 1행=제목(날짜포함), 2행=컬럼명, 3행~=데이터")
+        if multi_week:
+            try:
+                week_dfs, week_labels = parse_ad_report_multiweek(uploaded, ad_type=ad_type)
+                filtered_dfs: dict = {}
+                for lbl, wdf in week_dfs.items():
+                    fdf = wdf[wdf["ad_type"] == expected_type].copy() if not wdf.empty else wdf
+                    if not fdf.empty:
+                        filtered_dfs[lbl] = _merge_meta(fdf)
 
-    # ══ 섹션 2: 테이블 ══
-    if _parsed_summary is not None:
+                valid_labels = [l for l in week_labels if l in filtered_dfs]
+
+                if not valid_labels:
+                    st.warning(f"{expected_type} 데이터가 없습니다. 파일을 확인해주세요.")
+                elif len(valid_labels) == 1:
+                    # 단일 주차 → 기존 방식으로 처리
+                    _date_label = valid_labels[0]
+                    _parsed_summary = filtered_dfs[_date_label]
+                    st.caption(f"📅 파일 날짜 범위: {_date_label}")
+                else:
+                    this_label = valid_labels[-1]
+                    prev_label = valid_labels[-2]
+                    st.caption(f"📅 이번주: {this_label} | 지난주: {prev_label}")
+
+                    this_df = filtered_dfs[this_label]
+                    prev_df = filtered_dfs[prev_label]
+
+                    # 이번주/지난주 avg_rank 병합
+                    this_rank = this_df[["keyword", "avg_rank"]].rename(columns={"avg_rank": "이번주"})
+                    prev_rank = prev_df[["keyword", "avg_rank"]].rename(columns={"avg_rank": "지난주"})
+                    merged = this_rank.merge(prev_rank, on="keyword", how="outer")
+
+                    # 메타 컬럼 추가 (이번주 기준)
+                    meta_cols = [c for c in ("계절", "품목") if c in this_df.columns]
+                    if meta_cols:
+                        meta_df = this_df[["keyword"] + meta_cols]
+                        merged = meta_df.merge(merged, on="keyword", how="right")
+
+                    merged = merged.sort_values("이번주", na_position="last").reset_index(drop=True)
+
+                    # 저장용: 이번주 데이터
+                    save_df = week_dfs[this_label][week_dfs[this_label]["ad_type"] == expected_type].copy()
+                    save_summary = _merge_meta(summarize_by_keyword(save_df)) if not save_df.empty else pd.DataFrame()
+
+                    _multi_week_data = (merged, this_label, prev_label, save_summary)
+                    _date_label = this_label
+            except Exception as _parse_err:
+                st.error(f"파싱 실패: {_parse_err}")
+                st.caption("파일 형식: 1행=제목(날짜포함), 2행=컬럼명, 3행~=데이터")
+        else:
+            try:
+                _report, _date_label = parse_ad_report(uploaded, ad_type=ad_type)
+                _df = _report[_report["ad_type"] == expected_type].copy() if not _report.empty else _report
+                if _df.empty:
+                    st.warning(f"{expected_type} 데이터가 없습니다. 파일을 확인해주세요.")
+                else:
+                    st.caption(f"📅 파일 날짜 범위: {_date_label}")
+                    _parsed_summary = _merge_meta(summarize_by_keyword(_df))
+            except Exception as _parse_err:
+                st.error(f"파싱 실패: {_parse_err}")
+                st.caption("파일 형식: 1행=제목(날짜포함), 2행=컬럼명, 3행~=데이터")
+
+    # ══ 섹션 2: 테이블 (다중 주차) ══
+    if _multi_week_data is not None:
+        merged, this_label, prev_label, save_summary = _multi_week_data
+        _disp = _multiselect_filter(merged, f"{uploader_key}_up")
+        _disp = _disp.reset_index(drop=True)
+
+        st.metric("키워드 수", len(_disp))
+
+        def _mw_style(df):
+            result = pd.DataFrame("", index=df.index, columns=df.columns)
+            for i in range(len(df)):
+                this_r = pd.to_numeric(df["이번주"].iloc[i], errors="coerce") if "이번주" in df.columns else float("nan")
+                prev_r = pd.to_numeric(df["지난주"].iloc[i], errors="coerce") if "지난주" in df.columns else float("nan")
+                is_yellow = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4
+                is_green  = pd.notna(this_r) and this_r > 10
+                bg = "background-color: #fff9c4" if is_yellow else ("background-color: #c8f7c5" if is_green else "")
+                result.iloc[i, :] = bg
+            return result
+
+        _disp_renamed = _disp.rename(columns={
+            "keyword": "키워드",
+            "이번주": f"이번주 ({this_label})",
+            "지난주": f"지난주 ({prev_label})",
+        })
+        st.dataframe(
+            _disp_renamed.style.apply(_mw_style, axis=None),
+            use_container_width=True, hide_index=True, height=350,
+        )
+
+        # ══ 섹션 3: 저장 버튼 ══
+        if not save_summary.empty:
+            if st.button(f"📤 Google Sheets에 저장 ({this_label})", key=f"save_{uploader_key}"):
+                try:
+                    append_rank_history(save_summary, this_label, sheet_name)
+                    st.cache_data.clear()
+                    st.success(f"저장 완료! ({this_label})")
+                    st.rerun()
+                except Exception as _save_err:
+                    st.error(f"저장 실패: {_save_err}")
+
+    # ══ 섹션 2: 테이블 (단일 주차) ══
+    elif _parsed_summary is not None:
         _disp = _parsed_summary.sort_values("avg_rank").copy()
         _disp = _multiselect_filter(_disp, f"{uploader_key}_up")
         _disp = _disp.reset_index(drop=True)
@@ -987,6 +1078,7 @@ with tab3:
         load_fn=load_rank_shopping,
         tab_label="쇼핑검색",
         use_styling=True,
+        multi_week=True,
     )
 
 

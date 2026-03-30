@@ -212,6 +212,119 @@ def parse_ad_report(file_obj, ad_type: str = "auto") -> tuple:
     return result, date_label
 
 
+def _parse_week_label(week_str: str) -> str:
+    """
+    '주별' 컬럼 값에서 날짜 추출.
+    예: "2026.03.16.(월)주" → "2026.03.16"
+    """
+    m = re.search(r"(\d{4}\.\d{2}\.\d{2})", week_str)
+    if m:
+        return m.group(1)
+    return week_str.strip()
+
+
+def parse_ad_report_multiweek(file_obj, ad_type: str = "auto") -> tuple:
+    """
+    '주별' 컬럼이 있는 CSV를 파싱하여 주차별 데이터 반환.
+
+    Returns:
+        (week_dfs, week_labels)
+        - week_dfs   : {week_label: summarized_df}  (keyword, ad_type, avg_rank, ...)
+        - week_labels: 날짜 오름차순 정렬된 주차 레이블 목록
+    """
+    try:
+        df_raw = _read_raw(file_obj)
+    except Exception as e:
+        raise ValueError(f"파일을 읽을 수 없습니다: {e}")
+
+    if df_raw is None or df_raw.empty:
+        return {}, []
+
+    df_raw.columns = [str(c).strip() for c in df_raw.columns]
+    df_raw = df_raw.dropna(how="all").reset_index(drop=True)
+    cols = df_raw.columns.tolist()
+
+    week_col = _find_col(cols, ["주별"])
+
+    if not week_col:
+        # 주별 컬럼 없음 → 단일 주 처리
+        if hasattr(file_obj, "seek"):
+            file_obj.seek(0)
+        df, date_label = parse_ad_report(file_obj, ad_type)
+        if df.empty:
+            return {}, []
+        return {date_label: summarize_by_keyword(df)}, [date_label]
+
+    # 주별 컬럼 있음 → 고유 주차 추출 및 정렬
+    week_raw_map: dict = {}  # label → original value
+    for v in df_raw[week_col].dropna().unique():
+        label = _parse_week_label(str(v))
+        week_raw_map[label] = str(v).strip()
+
+    sorted_labels = sorted(week_raw_map.keys())
+
+    # 공통 컬럼 탐색
+    media_col    = _find_col(cols, ["PC/모바일매체", "PC/모바일", "모바일매체"])
+    campaign_col = _find_col(cols, ["캠페인유형"])
+    kw_col       = _find_col(cols, ["키워드"])
+    query_col    = _find_col(cols, ["검색어"])
+    rank_col     = _find_col(cols, ["평균노출순위", "평균순위", "노출순위", "순위"])
+    impr_col     = _find_col(cols, ["노출수"])
+    click_col    = _find_col(cols, ["클릭수"])
+    cost_col     = _find_col(cols, ["총비용", "비용"])
+
+    week_dfs: dict = {}
+    for label in sorted_labels:
+        orig_val = week_raw_map[label]
+        week_rows = df_raw[df_raw[week_col].astype(str).str.strip() == orig_val].copy().reset_index(drop=True)
+
+        if media_col:
+            week_rows = week_rows[week_rows[media_col].astype(str).str.contains("모바일", na=False)]
+        if campaign_col:
+            week_rows = week_rows[~week_rows[campaign_col].astype(str).str.contains("플레이스", na=False)]
+
+        week_rows = week_rows.reset_index(drop=True)
+        if week_rows.empty:
+            continue
+
+        rows = []
+        for _, row in week_rows.iterrows():
+            camp = str(row[campaign_col]).strip() if campaign_col else ""
+
+            if ad_type == "shopping":
+                resolved = "쇼핑검색"
+            elif ad_type == "powerlink":
+                resolved = "파워링크"
+            elif "쇼핑" in camp:
+                resolved = "쇼핑검색"
+            elif "파워링크" in camp:
+                resolved = "파워링크"
+            else:
+                resolved = camp or "기타"
+
+            kw_src = (query_col or kw_col) if resolved == "쇼핑검색" else (kw_col or query_col)
+            kw = str(row[kw_src]).strip() if kw_src else ""
+            if not kw or kw in ("nan", "None", ""):
+                continue
+
+            rows.append({
+                "keyword":     kw,
+                "ad_type":     resolved,
+                "avg_rank":    _to_num(row[rank_col])  if rank_col  else 0.0,
+                "impressions": _to_num(row[impr_col])  if impr_col  else 0.0,
+                "clicks":      _to_num(row[click_col]) if click_col else 0.0,
+                "cost":        _to_num(row[cost_col])  if cost_col  else 0.0,
+            })
+
+        if rows:
+            result = pd.DataFrame(rows)
+            for c in ["avg_rank", "impressions", "clicks", "cost"]:
+                result[c] = pd.to_numeric(result[c], errors="coerce").fillna(0)
+            week_dfs[label] = summarize_by_keyword(result)
+
+    return week_dfs, sorted_labels
+
+
 def summarize_by_keyword(df: pd.DataFrame) -> pd.DataFrame:
     """키워드별 광고 순위 요약 (ad_type별 그룹)"""
     if df.empty:
