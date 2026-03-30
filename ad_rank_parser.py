@@ -244,9 +244,28 @@ def parse_ad_report_multiweek(file_obj, ad_type: str = "auto") -> tuple:
     df_raw = df_raw.dropna(how="all").reset_index(drop=True)
     cols = df_raw.columns.tolist()
 
-    week_col = _find_col(cols, ["주별"])
+    # ── 한글 컬럼명 → 영어 표준명 매핑 (주차 분리보다 먼저 실행) ──
+    _col_targets = {
+        "week":          ["주별"],
+        "campaign_type": ["캠페인유형"],
+        "media":         ["PC/모바일매체", "PC/모바일", "모바일매체"],
+        "keyword_raw":   ["키워드"],
+        "query":         ["검색어"],
+        "avg_rank":      ["평균노출순위", "평균순위", "노출순위", "순위"],
+        "impressions":   ["노출수"],
+        "clicks":        ["클릭수"],
+        "cost":          ["총비용", "비용"],
+    }
+    rename_map: dict = {}
+    for eng, candidates in _col_targets.items():
+        found = _find_col(cols, candidates)
+        if found and found not in rename_map:
+            rename_map[found] = eng
 
-    if not week_col:
+    df_raw = df_raw.rename(columns=rename_map)
+    cols = df_raw.columns.tolist()
+
+    if "week" not in cols:
         # 주별 컬럼 없음 → 단일 주 처리
         if hasattr(file_obj, "seek"):
             file_obj.seek(0)
@@ -255,33 +274,23 @@ def parse_ad_report_multiweek(file_obj, ad_type: str = "auto") -> tuple:
             return {}, []
         return {date_label: summarize_by_keyword(df)}, [date_label]
 
-    # 주별 컬럼 있음 → 고유 주차 추출 및 정렬
-    week_raw_map: dict = {}  # label → original value
-    for v in df_raw[week_col].dropna().unique():
+    # 주별 고유 값 추출 및 정렬
+    week_raw_map: dict = {}
+    for v in df_raw["week"].dropna().unique():
         label = _parse_week_label(str(v))
         week_raw_map[label] = str(v).strip()
 
     sorted_labels = sorted(week_raw_map.keys())
 
-    # 공통 컬럼 탐색
-    media_col    = _find_col(cols, ["PC/모바일매체", "PC/모바일", "모바일매체"])
-    campaign_col = _find_col(cols, ["캠페인유형"])
-    kw_col       = _find_col(cols, ["키워드"])
-    query_col    = _find_col(cols, ["검색어"])
-    rank_col     = _find_col(cols, ["평균노출순위", "평균순위", "노출순위", "순위"])
-    impr_col     = _find_col(cols, ["노출수"])
-    click_col    = _find_col(cols, ["클릭수"])
-    cost_col     = _find_col(cols, ["총비용", "비용"])
-
     week_dfs: dict = {}
     for label in sorted_labels:
         orig_val = week_raw_map[label]
-        week_rows = df_raw[df_raw[week_col].astype(str).str.strip() == orig_val].copy().reset_index(drop=True)
+        week_rows = df_raw[df_raw["week"].astype(str).str.strip() == orig_val].copy().reset_index(drop=True)
 
-        if media_col:
-            week_rows = week_rows[week_rows[media_col].astype(str).str.contains("모바일", na=False)]
-        if campaign_col:
-            week_rows = week_rows[~week_rows[campaign_col].astype(str).str.contains("플레이스", na=False)]
+        if "media" in cols:
+            week_rows = week_rows[week_rows["media"].astype(str).str.contains("모바일", na=False)]
+        if "campaign_type" in cols:
+            week_rows = week_rows[~week_rows["campaign_type"].astype(str).str.contains("플레이스", na=False)]
 
         week_rows = week_rows.reset_index(drop=True)
         if week_rows.empty:
@@ -289,7 +298,7 @@ def parse_ad_report_multiweek(file_obj, ad_type: str = "auto") -> tuple:
 
         rows = []
         for _, row in week_rows.iterrows():
-            camp = str(row[campaign_col]).strip() if campaign_col else ""
+            camp = str(row.get("campaign_type", "")).strip()
 
             if ad_type == "shopping":
                 resolved = "쇼핑검색"
@@ -302,18 +311,21 @@ def parse_ad_report_multiweek(file_obj, ad_type: str = "auto") -> tuple:
             else:
                 resolved = camp or "기타"
 
-            kw_src = (query_col or kw_col) if resolved == "쇼핑검색" else (kw_col or query_col)
-            kw = str(row[kw_src]).strip() if kw_src else ""
+            if resolved == "쇼핑검색":
+                kw = str(row.get("query", row.get("keyword_raw", ""))).strip()
+            else:
+                kw = str(row.get("keyword_raw", row.get("query", ""))).strip()
+
             if not kw or kw in ("nan", "None", ""):
                 continue
 
             rows.append({
                 "keyword":     kw,
                 "ad_type":     resolved,
-                "avg_rank":    _to_num(row[rank_col])  if rank_col  else 0.0,
-                "impressions": _to_num(row[impr_col])  if impr_col  else 0.0,
-                "clicks":      _to_num(row[click_col]) if click_col else 0.0,
-                "cost":        _to_num(row[cost_col])  if cost_col  else 0.0,
+                "avg_rank":    _to_num(row.get("avg_rank", 0)),
+                "impressions": _to_num(row.get("impressions", 0)),
+                "clicks":      _to_num(row.get("clicks", 0)),
+                "cost":        _to_num(row.get("cost", 0)),
             })
 
         if rows:

@@ -496,9 +496,9 @@ def _render_rank_tab(
 
                     merged = merged.sort_values("이번주", na_position="last").reset_index(drop=True)
 
-                    # 저장용: 이번주 데이터
+                    # 저장용: 이번주 데이터 (week_dfs는 이미 summarize_by_keyword 적용됨)
                     save_df = week_dfs[this_label][week_dfs[this_label]["ad_type"] == expected_type].copy()
-                    save_summary = _merge_meta(summarize_by_keyword(save_df)) if not save_df.empty else pd.DataFrame()
+                    save_summary = _merge_meta(save_df) if not save_df.empty else pd.DataFrame()
 
                     _multi_week_data = (merged, this_label, prev_label, save_summary)
                     _date_label = this_label
