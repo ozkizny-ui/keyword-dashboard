@@ -727,13 +727,15 @@ with tab1:
 
         st.markdown("---")
 
-        # ── 키워드 주간 추이 그래프 (선택 기간)
+        # ── 키워드 주간 추이 그래프 (항상 최근 8주 고정)
         st.subheader("📈 키워드 주간 추이")
-        kw_options = period_filtered["keyword"].tolist()
-        # 이번주 검색수 500 이상 & 변화율 상위 5개를 기본 선택
+        _last8_cols = week_cols[-8:] if len(week_cols) >= 8 else week_cols
+        _last8_filtered = filtered[["keyword"] + _last8_cols]
+        kw_options = _last8_filtered["keyword"].tolist()
+        # 이번주 검색수 1,000 이상 & 변화율 상위 5개를 기본 선택
         if not ranked.empty and "이번주" in ranked.columns and "변화율" in ranked.columns:
             _default_kws = (
-                ranked[ranked["이번주"] >= 500]
+                ranked[ranked["이번주"] >= 1000]
                 .nlargest(5, "변화율")["keyword"]
                 .tolist()
             )
@@ -743,8 +745,8 @@ with tab1:
         selected_kws = st.multiselect("키워드 선택 (최대 10개)", kw_options, default=_default_kws, max_selections=10)
 
         if selected_kws:
-            chart_data = period_filtered[period_filtered["keyword"].isin(selected_kws)].melt(
-                id_vars="keyword", value_vars=period_week_cols, var_name="주차", value_name="검색수"
+            chart_data = _last8_filtered[_last8_filtered["keyword"].isin(selected_kws)].melt(
+                id_vars="keyword", value_vars=_last8_cols, var_name="주차", value_name="검색수"
             )
             fig = px.line(
                 chart_data, x="주차", y="검색수", color="keyword",
