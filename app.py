@@ -539,20 +539,41 @@ def _render_rank_tab(
 
         st.metric("키워드 수", len(_disp))
 
+        # 아이콘 추가 전 숫자값 캡처
+        _this_nums = pd.to_numeric(_disp[_this_col], errors="coerce") if _this_col in _disp.columns else pd.Series(dtype=float)
+        _prev_nums = pd.to_numeric(_disp[_prev_col], errors="coerce") if _prev_col in _disp.columns else pd.Series(dtype=float)
+
+        # 이번주 셀 값에 아이콘 추가 (🔻: 4 이상 하락, ⚠️: 10위 초과)
+        def _icon_val(i):
+            this_r = _this_nums.iloc[i] if i < len(_this_nums) else float("nan")
+            prev_r = _prev_nums.iloc[i] if i < len(_prev_nums) else float("nan")
+            val = str(int(this_r)) if pd.notna(this_r) else "-"
+            if pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4:
+                return f"🔻 {val}"
+            elif pd.notna(this_r) and this_r > 10:
+                return f"⚠️ {val}"
+            return val
+
+        _disp[_this_col] = [_icon_val(i) for i in range(len(_disp))]
+
+        # 이번주 셀만 배경색 적용 (전체 행 아님)
         def _mw_style(df):
             result = pd.DataFrame("", index=df.index, columns=df.columns)
+            if _this_col not in df.columns:
+                return result
+            col_idx = df.columns.get_loc(_this_col)
             for i in range(len(df)):
-                this_r = pd.to_numeric(df[_this_col].iloc[i], errors="coerce") if _this_col in df.columns else float("nan")
-                prev_r = pd.to_numeric(df[_prev_col].iloc[i], errors="coerce") if _prev_col in df.columns else float("nan")
-                is_yellow = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4
-                is_green  = pd.notna(this_r) and this_r > 10
-                bg = "background-color: #fff9c4" if is_yellow else ("background-color: #c8f7c5" if is_green else "")
-                result.iloc[i, :] = bg
+                this_r = _this_nums.iloc[i] if i < len(_this_nums) else float("nan")
+                prev_r = _prev_nums.iloc[i] if i < len(_prev_nums) else float("nan")
+                if pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4:
+                    result.iloc[i, col_idx] = "background-color: #ffebee"
+                elif pd.notna(this_r) and this_r > 10:
+                    result.iloc[i, col_idx] = "background-color: #fff9c4"
             return result
 
         st.dataframe(
             _disp.style.apply(_mw_style, axis=None).format(
-                {_this_col: "{:.0f}", _prev_col: "{:.0f}"}, na_rep="-"
+                {_prev_col: "{:.0f}"}, na_rep="-"
             ),
             use_container_width=True, hide_index=True, height=350,
         )
