@@ -1103,6 +1103,7 @@ with tab4:
         load_fn=load_rank_powerlink,
         tab_label="파워링크",
         use_styling=True,
+        multi_week=True,
     )
 
 
