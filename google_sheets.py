@@ -139,15 +139,33 @@ def read_weekly_data() -> pd.DataFrame:
     if len(data) < 2:
         return pd.DataFrame()
 
-    df = pd.DataFrame(data[1:], columns=data[0])
+    header = data[0]
+    n_cols = len(header)
+    # 헤더 길이에 맞춰 각 행을 패딩/잘라내기 (빈 셀·병합 셀 대응)
+    rows = [row[:n_cols] + [""] * (n_cols - len(row)) for row in data[1:]]
+    # 중복 컬럼명 자동 rename: 두 번째 이후 동일 이름에 _2, _3 ... 접미사 부여
+    seen: dict = {}
+    deduped_header = []
+    for col in header:
+        if col in seen:
+            seen[col] += 1
+            deduped_header.append(f"{col}_{seen[col]}")
+        else:
+            seen[col] = 1
+            deduped_header.append(col)
+    df = pd.DataFrame(rows, columns=deduped_header)
     # 첫 번째 컬럼을 "keyword"로 정규화 (Sheets에서 헤더가 다를 수 있음)
     df.rename(columns={df.columns[0]: "keyword"}, inplace=True)
     df["keyword"] = df["keyword"].str.strip()
     # 중복 키워드 제거 (첫 번째 값 유지 - 쓰기 경로와 동일하게 첫 행 기준)
     df = df.drop_duplicates(subset="keyword", keep="first").reset_index(drop=True)
-    # 숫자 컬럼 변환
+    # 숫자 컬럼 변환 (쉼표 제거 후 정수 변환)
     for col in df.columns[1:]:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+        series = df[col]
+        if isinstance(series, pd.Series):
+            df[col] = pd.to_numeric(
+                series.str.replace(",", "", regex=False), errors="coerce"
+            ).fillna(0).astype(int)
     return df
 
 
