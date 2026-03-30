@@ -494,7 +494,7 @@ def _render_rank_tab(
                         meta_df = this_df[["keyword"] + meta_cols]
                         merged = meta_df.merge(merged, on="keyword", how="right")
 
-                    merged = merged.sort_values("이번주", na_position="last").reset_index(drop=True)
+                    merged = merged.sort_values("이번주", ascending=False, na_position="last").reset_index(drop=True)
 
                     # 저장용: 이번주 데이터 (week_dfs는 이미 summarize_by_keyword 적용됨)
                     save_df = week_dfs[this_label][week_dfs[this_label]["ad_type"] == expected_type].copy()
@@ -551,7 +551,9 @@ def _render_rank_tab(
             return result
 
         st.dataframe(
-            _disp.style.apply(_mw_style, axis=None),
+            _disp.style.apply(_mw_style, axis=None).format(
+                {_this_col: "{:.0f}", _prev_col: "{:.0f}"}, na_rep="-"
+            ),
             use_container_width=True, hide_index=True, height=350,
         )
 
