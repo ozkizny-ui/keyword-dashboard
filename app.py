@@ -5,6 +5,7 @@ Streamlit 기반 - 주간 검색수 트래킹 & 트렌드 분석
 실행: streamlit run app.py
 """
 import os
+import json
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -151,17 +152,66 @@ st.sidebar.title("🔍 키워드 필터")
 
 meta_df = load_meta()
 
+# ── 필터 상태 JSON 저장/로드 ──────────────────────
+_FILTER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "filter_state.json")
+
+def _load_filter_state() -> dict:
+    try:
+        with open(_FILTER_FILE, "r", encoding="utf-8") as _f:
+            return json.load(_f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _save_filter_state(state: dict):
+    with open(_FILTER_FILE, "w", encoding="utf-8") as _f:
+        json.dump(state, _f, ensure_ascii=False, indent=2)
+
+_saved_filters = _load_filter_state()
+
+# session_state 초기화 — 앱 재시작 시 JSON에서 복원
+for _key, _json_key in [
+    ("filter_seasons", "seasons"),
+    ("filter_categories", "categories"),
+    ("filter_genders", "genders"),
+]:
+    if _key not in st.session_state:
+        st.session_state[_key] = _saved_filters.get(_json_key, [])
+
 # 필터 1: 계절
-seasons = ["전체"] + sorted(meta_df["계절"].dropna().unique().tolist()) if "계절" in meta_df.columns else ["전체"]
-selected_season = st.sidebar.selectbox("계절", seasons)
+season_options = sorted(meta_df["계절"].dropna().unique().tolist()) if "계절" in meta_df.columns else []
+selected_seasons = st.sidebar.multiselect(
+    "계절 (미선택 = 전체)",
+    season_options,
+    default=[v for v in st.session_state["filter_seasons"] if v in season_options],
+    key="filter_seasons",
+)
 
 # 필터 2: 카테고리
-categories = ["전체"] + sorted(meta_df["카테고리"].dropna().unique().tolist()) if "카테고리" in meta_df.columns else ["전체"]
-selected_category = st.sidebar.selectbox("카테고리", categories)
+category_options = sorted(meta_df["카테고리"].dropna().unique().tolist()) if "카테고리" in meta_df.columns else []
+selected_categories = st.sidebar.multiselect(
+    "카테고리 (미선택 = 전체)",
+    category_options,
+    default=[v for v in st.session_state["filter_categories"] if v in category_options],
+    key="filter_categories",
+)
 
 # 필터 3: 성별
-genders = ["전체"] + sorted(meta_df["성별"].dropna().unique().tolist()) if "성별" in meta_df.columns else ["전체"]
-selected_gender = st.sidebar.selectbox("성별", genders)
+gender_options = sorted(meta_df["성별"].dropna().unique().tolist()) if "성별" in meta_df.columns else []
+selected_genders = st.sidebar.multiselect(
+    "성별 (미선택 = 전체)",
+    gender_options,
+    default=[v for v in st.session_state["filter_genders"] if v in gender_options],
+    key="filter_genders",
+)
+
+# 필터 변경 시 JSON에 저장
+_cur_filters = {
+    "seasons": selected_seasons,
+    "categories": selected_categories,
+    "genders": selected_genders,
+}
+if _cur_filters != _saved_filters:
+    _save_filter_state(_cur_filters)
 
 # 키워드 직접 검색
 keyword_search = st.sidebar.text_input("🔎 키워드 검색", placeholder="키워드명 입력...")
@@ -193,17 +243,20 @@ def _get_season_top3(avail_kws: list, vol_df: pd.DataFrame) -> list:
 
 
 def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
-    """사이드바 필터 적용"""
+    """사이드바 필터 적용 (multiselect — 미선택 시 전체)"""
     if meta_df.empty or "keyword" not in meta_df.columns:
         filtered_keywords = df["keyword"].tolist()
     else:
         mask = pd.Series(True, index=meta_df.index)
-        if selected_season != "전체":
-            mask &= meta_df["계절"].str.contains(selected_season, na=False)
-        if selected_category != "전체":
-            mask &= meta_df["카테고리"] == selected_category
-        if selected_gender != "전체":
-            mask &= meta_df["성별"] == selected_gender
+        if selected_seasons:
+            # 계절은 "봄/여름" 형태로 복수값이 들어있을 수 있으므로 contains 방식 유지
+            mask &= meta_df["계절"].apply(
+                lambda x: any(s in str(x) for s in selected_seasons) if pd.notna(x) else False
+            )
+        if selected_categories:
+            mask &= meta_df["카테고리"].isin(selected_categories)
+        if selected_genders:
+            mask &= meta_df["성별"].isin(selected_genders)
         filtered_keywords = meta_df[mask]["keyword"].tolist()
 
     result = df[df["keyword"].isin(filtered_keywords)] if filtered_keywords else df
@@ -468,69 +521,164 @@ with tab1:
                        9: "가을", 10: "가을", 11: "가을"}
         current_season = _season_map[_month]
 
-        # ── 카드 1: 급상승 1위
-        if not ranked.empty:
-            _r = ranked.nlargest(1, "변화율").iloc[0]
-            card1_name = _r["keyword"]
-            card1_sub = f"+{_r['변화율']:.1f}%" if _r["변화율"] >= 0 else f"{_r['변화율']:.1f}%"
-        else:
-            card1_name, card1_sub = "-", "데이터 부족"
+        # ── 상단 차트 3개 ────────────────────────────────
+        ch1, ch2, ch3 = st.columns(3)
 
-        # ── 카드 2: 시즌 키워드
-        if not ranked.empty and not meta_df.empty and "계절" in meta_df.columns:
-            _season_kws = meta_df[meta_df["계절"].str.contains(current_season, na=False)]["keyword"].tolist()
-            _season_ranked = ranked[ranked["keyword"].isin(_season_kws)]
-            if not _season_ranked.empty:
-                _s = _season_ranked.nlargest(1, "변화율").iloc[0]
-                card2_name = _s["keyword"]
-                card2_sub = f"+{_s['변화율']:.1f}%" if _s["변화율"] >= 0 else f"{_s['변화율']:.1f}%"
+        # ── 차트 1: 급상승 TOP 10 올해 vs 작년 비교
+        with ch1:
+            st.markdown("**📈 급상승 TOP 10 — 올해 vs 작년**")
+            if week_cols and len(week_cols) >= 2 and not ranked.empty:
+                _this_week_col = week_cols[-1]
+                _vol_map = filtered.set_index("keyword")[_this_week_col].to_dict()
+
+                # 이번주 검색수 1,000 이상인 것만 대상
+                _ranked_filtered = ranked[
+                    ranked["keyword"].map(lambda k: _vol_map.get(k, 0)) >= 1000
+                ]
+                _top10_up = _ranked_filtered.nlargest(10, "변화율")[["keyword", "이번주", "변화율"]].copy()
+
+                if not _top10_up.empty:
+                    # ── 작년 같은 주차 컬럼을 weekly_df에서 탐색
+                    _ly_col = None
+                    _cur_start = None
+                    try:
+                        _cur_start = datetime.strptime(
+                            _this_week_col.split("-")[0], "%Y.%m.%d"
+                        )
+                        _ly_target = _cur_start - timedelta(weeks=52)
+                        _best_col, _best_diff = None, None
+                        for _wc in weekly_df.columns[1:]:
+                            try:
+                                _wc_start = datetime.strptime(_wc.split("-")[0], "%Y.%m.%d")
+                                _diff = abs((_wc_start - _ly_target).days)
+                                if _best_diff is None or _diff < _best_diff:
+                                    _best_diff, _best_col = _diff, _wc
+                            except ValueError:
+                                continue
+                        if _best_col and _best_diff <= 14:
+                            _ly_col = _best_col
+                    except (ValueError, IndexError):
+                        pass
+
+                    if _ly_col:
+                        # weekly_df에서 작년 데이터 가져오기
+                        _ly_map = weekly_df.set_index("keyword")[_ly_col].to_dict()
+                        _top10_up["작년"] = _top10_up["keyword"].map(_ly_map).fillna(0)
+                    elif _cur_start is not None:
+                        # 연간 트렌드 시트에서 같은 ISO 주차 데이터 탐색
+                        _trend_fb = load_trend()
+                        _top10_up["작년"] = 0
+                        if (
+                            not _trend_fb.empty
+                            and "keyword" in _trend_fb.columns
+                            and "estimated_weekly_volume" in _trend_fb.columns
+                            and "date" in _trend_fb.columns
+                        ):
+                            _tdf2 = _trend_fb.copy()
+                            _tdf2["_date"] = pd.to_datetime(_tdf2["date"], errors="coerce")
+                            _tdf2["_year"] = _tdf2["_date"].dt.year
+                            _tdf2["_week"] = _tdf2["_date"].dt.isocalendar().week
+                            _iso_week = _cur_start.isocalendar()[1]
+                            _ly_year = _cur_start.year - 1
+                            _ly_trend = _tdf2[
+                                (_tdf2["_year"] == _ly_year) & (_tdf2["_week"] == _iso_week)
+                            ][["keyword", "estimated_weekly_volume"]]
+                            _ly_map2 = _ly_trend.set_index("keyword")["estimated_weekly_volume"].to_dict()
+                            _top10_up["작년"] = _top10_up["keyword"].map(_ly_map2).fillna(0)
+                    else:
+                        _top10_up["작년"] = 0
+
+                    _top10_up = _top10_up.rename(columns={"이번주": "올해"})
+                    _top10_up = _top10_up.sort_values("올해", ascending=True)
+
+                    _chart_df = pd.melt(
+                        _top10_up[["keyword", "올해", "작년"]],
+                        id_vars="keyword", var_name="기간", value_name="검색수",
+                    )
+                    fig_cmp = px.bar(
+                        _chart_df, x="검색수", y="keyword",
+                        color="기간", orientation="h", barmode="group",
+                        color_discrete_map={"올해": "#667eea", "작년": "#adb5bd"},
+                        text="검색수",
+                    )
+                    fig_cmp.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
+                    fig_cmp.update_layout(
+                        margin=dict(t=10, b=10, l=10, r=80),
+                        yaxis_title=None, xaxis_title=None,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+                        height=280,
+                    )
+                    st.plotly_chart(fig_cmp, use_container_width=True)
+                else:
+                    st.info("조건에 맞는 키워드 없음\n(이번주 검색수 1,000 이상 & 변화율 상위 필요)")
             else:
-                card2_name, card2_sub = "-", f"{current_season} 데이터 없음"
-        else:
-            card2_name, card2_sub = "-", "메타 데이터 없음"
+                st.info("데이터 부족 (최소 2주 필요)")
 
-        # ── 카드 3: 검색수 TOP 1
-        if week_cols:
-            _top_idx = filtered[week_cols[-1]].idxmax()
-            card3_name = filtered.loc[_top_idx, "keyword"]
-            card3_sub = f"{filtered.loc[_top_idx, week_cols[-1]]:,}"
-        else:
-            card3_name, card3_sub = "-", ""
-
-        # ── 카드 4: 시장 트렌드
-        if len(week_cols) >= 2:
-            _total_this = filtered[week_cols[-1]].sum()
-            _total_prev = filtered[week_cols[-2]].sum()
-            if _total_prev > 0:
-                _pct = (_total_this - _total_prev) / _total_prev * 100
-                card4_val = f"+{_pct:.1f}%" if _pct >= 0 else f"{_pct:.1f}%"
+        # ── 차트 2: 검색수 TOP 10 가로 바차트
+        with ch2:
+            st.markdown("**🏆 검색수 TOP 10 (이번주)**")
+            if week_cols:
+                _top10 = (
+                    filtered[["keyword", week_cols[-1]]]
+                    .rename(columns={week_cols[-1]: "검색수"})
+                    .nlargest(10, "검색수")
+                    .sort_values("검색수", ascending=True)  # plotly h-bar: 위→아래 큰 순서
+                )
+                if not _top10.empty:
+                    fig_bar = px.bar(
+                        _top10, x="검색수", y="keyword",
+                        orientation="h",
+                        color="검색수",
+                        color_continuous_scale="Blues",
+                        text="검색수",
+                    )
+                    fig_bar.update_traces(
+                        texttemplate="%{text:,.0f}", textposition="outside"
+                    )
+                    fig_bar.update_layout(
+                        margin=dict(t=10, b=10, l=10, r=70),
+                        coloraxis_showscale=False,
+                        yaxis_title=None,
+                        xaxis_title=None,
+                        height=280,
+                    )
+                    st.plotly_chart(fig_bar, use_container_width=True)
+                else:
+                    st.info("데이터 없음")
             else:
-                card4_val = "-"
-        else:
-            card4_val = "데이터 부족"
+                st.info("주차 데이터 없음")
 
-        # ── 요약 카드 표시
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.markdown(f"""<div class="metric-card">
-                <h3>📈 급상승 1위</h3><p style="font-size:1.3rem">{card1_name}</p>
-                <small style="opacity:0.85">{card1_sub}</small>
-            </div>""", unsafe_allow_html=True)
-        with col2:
-            st.markdown(f"""<div class="metric-card">
-                <h3>🔥 시즌 키워드 ({current_season})</h3><p style="font-size:1.3rem">{card2_name}</p>
-                <small style="opacity:0.85">{card2_sub}</small>
-            </div>""", unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"""<div class="metric-card">
-                <h3>🏆 검색수 TOP 1</h3><p style="font-size:1.3rem">{card3_name}</p>
-                <small style="opacity:0.85">{card3_sub}</small>
-            </div>""", unsafe_allow_html=True)
-        with col4:
-            st.markdown(f"""<div class="metric-card">
-                <h3>📊 시장 트렌드</h3><p>{card4_val}</p>
-                <small style="opacity:0.85">전주 대비</small>
-            </div>""", unsafe_allow_html=True)
+        # ── 차트 3: 계절 전환 지표 (다음 계절 키워드 검색수 추이)
+        with ch3:
+            _next_season_map = {"봄": "여름", "여름": "가을", "가을": "겨울", "겨울": "봄"}
+            next_season = _next_season_map[current_season]
+            st.markdown(f"**📅 계절 전환 지표 ({next_season} 키워드 동향)**")
+            if not meta_df.empty and "계절" in meta_df.columns and len(week_cols) >= 2:
+                _next_kws = meta_df[
+                    meta_df["계절"].str.contains(next_season, na=False)
+                ]["keyword"].tolist()
+                _next_vol = weekly_df[weekly_df["keyword"].isin(_next_kws)]
+                _last4 = week_cols[-4:] if len(week_cols) >= 4 else week_cols
+                if not _next_vol.empty:
+                    _trend = _next_vol[_last4].sum().reset_index()
+                    _trend.columns = ["주차", "검색수 합계"]
+                    fig_line = px.line(
+                        _trend, x="주차", y="검색수 합계",
+                        markers=True,
+                        color_discrete_sequence=["#667eea"],
+                    )
+                    fig_line.update_traces(line_width=2.5, marker_size=7)
+                    fig_line.update_layout(
+                        margin=dict(t=10, b=30, l=10, r=10),
+                        xaxis_title=None,
+                        yaxis_title=None,
+                        height=280,
+                    )
+                    st.plotly_chart(fig_line, use_container_width=True)
+                else:
+                    st.info(f"{next_season} 키워드 없음")
+            else:
+                st.info("데이터 부족 (최소 2주 필요)")
 
         st.markdown("---")
 
@@ -582,7 +730,16 @@ with tab1:
         # ── 키워드 주간 추이 그래프 (선택 기간)
         st.subheader("📈 키워드 주간 추이")
         kw_options = period_filtered["keyword"].tolist()
-        _default_kws = _get_season_top3(kw_options, filtered)
+        # 이번주 검색수 500 이상 & 변화율 상위 5개를 기본 선택
+        if not ranked.empty and "이번주" in ranked.columns and "변화율" in ranked.columns:
+            _default_kws = (
+                ranked[ranked["이번주"] >= 500]
+                .nlargest(5, "변화율")["keyword"]
+                .tolist()
+            )
+            _default_kws = [kw for kw in _default_kws if kw in kw_options]
+        else:
+            _default_kws = []
         selected_kws = st.multiselect("키워드 선택 (최대 10개)", kw_options, default=_default_kws, max_selections=10)
 
         if selected_kws:
