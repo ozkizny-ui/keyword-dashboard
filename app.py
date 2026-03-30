@@ -522,28 +522,36 @@ def _render_rank_tab(
     if _multi_week_data is not None:
         merged, this_label, prev_label, save_summary = _multi_week_data
         _disp = _multiselect_filter(merged, f"{uploader_key}_up")
-        _disp = _disp.reset_index(drop=True)
+
+        # 컬럼 순서: 계절, 품목, 키워드, 지난주, 이번주
+        _meta_cols = [c for c in ("계절", "품목") if c in _disp.columns]
+        _col_order = _meta_cols + ["keyword", "지난주", "이번주"]
+        _disp = _disp[[c for c in _col_order if c in _disp.columns]].reset_index(drop=True)
+
+        # 컬럼명 변환 (스타일 함수보다 먼저 확정)
+        _this_col = f"이번주 ({this_label})"
+        _prev_col = f"지난주 ({prev_label})"
+        _disp = _disp.rename(columns={
+            "keyword": "키워드",
+            "이번주": _this_col,
+            "지난주": _prev_col,
+        })
 
         st.metric("키워드 수", len(_disp))
 
         def _mw_style(df):
             result = pd.DataFrame("", index=df.index, columns=df.columns)
             for i in range(len(df)):
-                this_r = pd.to_numeric(df["이번주"].iloc[i], errors="coerce") if "이번주" in df.columns else float("nan")
-                prev_r = pd.to_numeric(df["지난주"].iloc[i], errors="coerce") if "지난주" in df.columns else float("nan")
+                this_r = pd.to_numeric(df[_this_col].iloc[i], errors="coerce") if _this_col in df.columns else float("nan")
+                prev_r = pd.to_numeric(df[_prev_col].iloc[i], errors="coerce") if _prev_col in df.columns else float("nan")
                 is_yellow = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4
                 is_green  = pd.notna(this_r) and this_r > 10
                 bg = "background-color: #fff9c4" if is_yellow else ("background-color: #c8f7c5" if is_green else "")
                 result.iloc[i, :] = bg
             return result
 
-        _disp_renamed = _disp.rename(columns={
-            "keyword": "키워드",
-            "이번주": f"이번주 ({this_label})",
-            "지난주": f"지난주 ({prev_label})",
-        })
         st.dataframe(
-            _disp_renamed.style.apply(_mw_style, axis=None),
+            _disp.style.apply(_mw_style, axis=None),
             use_container_width=True, hide_index=True, height=350,
         )
 
