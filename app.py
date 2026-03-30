@@ -572,9 +572,10 @@ def _render_rank_tab(
             return result
 
         st.dataframe(
-            _disp.style.apply(_mw_style, axis=None).format(
-                {_prev_col: "{:.0f}"}, na_rep="-"
-            ),
+            _disp.style
+                .apply(_mw_style, axis=None)
+                .set_properties(subset=[_this_col], **{"text-align": "right"})
+                .format({_prev_col: "{:.0f}"}, na_rep="-"),
             use_container_width=True, hide_index=True, height=350,
         )
 
