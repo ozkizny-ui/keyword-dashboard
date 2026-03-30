@@ -806,7 +806,19 @@ with tab2:
         if not avail_kws:
             st.info("데이터 관리 탭에서 데이터 수집을 먼저 실행해주세요.")
         else:
-            _trend_defaults = _get_season_top3(avail_kws, load_weekly())
+            _weekly_for_default = load_weekly()
+            _w_cols = [c for c in _weekly_for_default.columns if c != "keyword"]
+            if _w_cols:
+                _trend_defaults = (
+                    _weekly_for_default[["keyword", _w_cols[-1]]]
+                    .rename(columns={_w_cols[-1]: "_vol"})
+                    .sort_values("_vol", ascending=False)["keyword"]
+                    .head(3)
+                    .tolist()
+                )
+                _trend_defaults = [kw for kw in _trend_defaults if kw in avail_kws]
+            else:
+                _trend_defaults = avail_kws[:3]
             trend_selected = st.multiselect(
                 "키워드 선택 (최대 5개)",
                 avail_kws,
