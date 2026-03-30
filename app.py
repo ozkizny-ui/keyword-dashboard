@@ -547,7 +547,7 @@ def _render_rank_tab(
         def _icon_val(i):
             this_r = _this_nums.iloc[i] if i < len(_this_nums) else float("nan")
             prev_r = _prev_nums.iloc[i] if i < len(_prev_nums) else float("nan")
-            val = str(int(this_r)) if pd.notna(this_r) else "-"
+            val = f"{int(this_r):,}" if pd.notna(this_r) else "-"
             if pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4:
                 return f"🔻 {val}"
             elif pd.notna(this_r) and this_r > 10:
@@ -575,7 +575,7 @@ def _render_rank_tab(
             _disp.style
                 .apply(_mw_style, axis=None)
                 .set_properties(subset=[_this_col], **{"text-align": "right"})
-                .format({_prev_col: "{:.0f}"}, na_rep="-"),
+                .format({_prev_col: "{:,.0f}"}, na_rep="-"),
             use_container_width=True, hide_index=True, height=350,
         )
 
@@ -624,6 +624,7 @@ def _render_rank_tab(
 
         st.metric("키워드 수", len(_disp))
 
+        _num_cols_disp = {c: "{:,.0f}" for c in _disp.columns if pd.api.types.is_numeric_dtype(_disp[c])}
         if use_styling:
             def _upload_style(df):
                 result = pd.DataFrame("", index=df.index, columns=df.columns)
@@ -636,10 +637,15 @@ def _render_rank_tab(
                     bg = "background-color: #fff9c4" if is_yellow else ("background-color: #c8f7c5" if is_green else "")
                     result.iloc[i, :] = bg
                 return result
-            st.dataframe(_disp.style.apply(_upload_style, axis=None),
-                         use_container_width=True, hide_index=True, height=350)
+            st.dataframe(
+                _disp.style.apply(_upload_style, axis=None).format(_num_cols_disp, na_rep="-"),
+                use_container_width=True, hide_index=True, height=350,
+            )
         else:
-            st.dataframe(_disp, use_container_width=True, hide_index=True, height=350)
+            st.dataframe(
+                _disp.style.format(_num_cols_disp, na_rep="-"),
+                use_container_width=True, hide_index=True, height=350,
+            )
 
         # ══ 섹션 3: 저장 버튼 ══
         if st.button(f"📤 Google Sheets에 저장 ({_date_label})", key=f"save_{uploader_key}"):
@@ -669,15 +675,20 @@ def _render_rank_tab(
             _hist = _multiselect_filter(_hist, f"{uploader_key}_hist")
             _hist = _hist.reset_index(drop=True)
 
+            _hist_num_fmt = {c: "{:,.0f}" for c in _hist.columns if pd.api.types.is_numeric_dtype(_hist[c])}
             if use_styling and len(_sel_date_cols) >= 2:
                 _this_col = _sel_date_cols[-1]
                 _prev_col = _sel_date_cols[-2]
                 st.dataframe(
-                    _hist.style.apply(_rank_style, this_col=_this_col, prev_col=_prev_col, axis=None),
+                    _hist.style.apply(_rank_style, this_col=_this_col, prev_col=_prev_col, axis=None)
+                         .format(_hist_num_fmt, na_rep="-"),
                     use_container_width=True, hide_index=True, height=350,
                 )
             else:
-                st.dataframe(_hist, use_container_width=True, hide_index=True, height=350)
+                st.dataframe(
+                    _hist.style.format(_hist_num_fmt, na_rep="-"),
+                    use_container_width=True, hide_index=True, height=350,
+                )
         else:
             st.info("데이터가 없습니다. CSV 파일을 업로드해주세요.")
 
@@ -880,15 +891,19 @@ with tab1:
 
         # ── 급상승/급하락 TOP 10 (선택 기간 마지막 2주 기준)
         if not period_ranked.empty:
+            _top_fmt = {
+                "이번주": "{:,.0f}", "지난주": "{:,.0f}", "변화량": "{:,.0f}",
+                "변화율": lambda x: f"{x:+.1f}%" if pd.notna(x) else "-",
+            }
             col_left, col_right = st.columns(2)
             with col_left:
                 st.subheader("🔥 급상승 TOP 10")
                 top_up = period_ranked.nlargest(10, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
-                st.dataframe(top_up, use_container_width=True, hide_index=True)
+                st.dataframe(top_up.style.format(_top_fmt, na_rep="-"), use_container_width=True, hide_index=True)
             with col_right:
                 st.subheader("❄️ 급하락 TOP 10")
                 top_down = period_ranked.nsmallest(10, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
-                st.dataframe(top_down, use_container_width=True, hide_index=True)
+                st.dataframe(top_down.style.format(_top_fmt, na_rep="-"), use_container_width=True, hide_index=True)
 
         # ── 키워드별 검색수 순위
         st.markdown("---")
@@ -908,7 +923,11 @@ with tab1:
             else:
                 _rank_tbl["지난주"] = "-"
                 _rank_tbl["변화율"] = "-"
-            st.dataframe(_rank_tbl, use_container_width=True, hide_index=True, height=400)
+            _num_safe = lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) and pd.notna(x) else x
+            st.dataframe(
+                _rank_tbl.style.format({"이번주": "{:,.0f}", "지난주": _num_safe}, na_rep="-"),
+                use_container_width=True, hide_index=True, height=400,
+            )
 
         st.markdown("---")
 
@@ -946,7 +965,11 @@ with tab1:
 
         # ── 전체 데이터 테이블 (선택 기간)
         st.subheader("📋 전체 데이터")
-        st.dataframe(period_filtered, use_container_width=True, hide_index=True, height=400)
+        _wk_fmt = {c: "{:,.0f}" for c in period_filtered.columns if c != "keyword"}
+        st.dataframe(
+            period_filtered.style.format(_wk_fmt, na_rep="-"),
+            use_container_width=True, hide_index=True, height=400,
+        )
 
 
 # ── TAB 2: 연간 트렌드 ──
