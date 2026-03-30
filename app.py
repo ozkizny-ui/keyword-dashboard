@@ -98,7 +98,7 @@ def load_meta():
     try:
         return pd.read_csv(config.KEYWORDS_META_FILE, encoding="utf-8-sig")
     except FileNotFoundError:
-        return pd.DataFrame(columns=["keyword", "계절", "카테고리", "성별"])
+        return pd.DataFrame(columns=["keyword", "계절", "카테고리", "성별/나이"])
 
 
 def calc_changes(df: pd.DataFrame) -> pd.DataFrame:
@@ -195,10 +195,10 @@ selected_categories = st.sidebar.multiselect(
     key="filter_categories",
 )
 
-# 필터 3: 성별
-gender_options = sorted(meta_df["성별"].dropna().unique().tolist()) if "성별" in meta_df.columns else []
+# 필터 3: 성별/나이
+gender_options = sorted(meta_df["성별/나이"].dropna().unique().tolist()) if "성별/나이" in meta_df.columns else []
 selected_genders = st.sidebar.multiselect(
-    "성별 (미선택 = 전체)",
+    "성별/나이 (미선택 = 전체)",
     gender_options,
     default=[v for v in st.session_state["filter_genders"] if v in gender_options],
     key="filter_genders",
@@ -256,7 +256,7 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         if selected_categories:
             mask &= meta_df["카테고리"].isin(selected_categories)
         if selected_genders:
-            mask &= meta_df["성별"].isin(selected_genders)
+            mask &= meta_df["성별/나이"].isin(selected_genders)
         filtered_keywords = meta_df[mask]["keyword"].tolist()
 
     result = df[df["keyword"].isin(filtered_keywords)] if filtered_keywords else df
@@ -981,7 +981,7 @@ with tab6:
 
     with col2:
         st.markdown("#### 📋 키워드 메타 정보")
-        st.caption("키워드별 계절/카테고리/성별 태그를 관리합니다.")
+        st.caption("키워드별 계절/카테고리/성별/나이 태그를 관리합니다.")
 
         meta = load_meta()
         if meta.empty:
