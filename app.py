@@ -810,13 +810,13 @@ with tab2:
             _w_cols = [c for c in _weekly_for_default.columns if c != "keyword"]
             if _w_cols:
                 _trend_defaults = (
-                    _weekly_for_default[["keyword", _w_cols[-1]]]
+                    _weekly_for_default[_weekly_for_default["keyword"].isin(avail_kws)]
+                    [["keyword", _w_cols[-1]]]
                     .rename(columns={_w_cols[-1]: "_vol"})
                     .sort_values("_vol", ascending=False)["keyword"]
                     .head(3)
                     .tolist()
                 )
-                _trend_defaults = [kw for kw in _trend_defaults if kw in avail_kws]
             else:
                 _trend_defaults = avail_kws[:3]
             trend_selected = st.multiselect(
@@ -837,6 +837,18 @@ with tab2:
                     _palette = px.colors.qualitative.Plotly
                     _color_map = {kw: _palette[i % len(_palette)] for i, kw in enumerate(trend_selected)}
 
+                    # ISO 주차 → "월주" 라벨 변환
+                    from datetime import date as _dc
+                    def _wk_label(w: int) -> str:
+                        try:
+                            d = _dc.fromisocalendar(this_year, int(w), 1)
+                            return f"{d.month}월{(d.day - 1) // 7 + 1}주"
+                        except (ValueError, OverflowError):
+                            return str(w)
+
+                    _tickvals = list(range(1, 53, 2))
+                    _ticktext = [_wk_label(w) for w in _tickvals]
+
                     fig = go.Figure()
                     for kw in trend_selected:
                         for year, dash, label_suffix in [
@@ -855,15 +867,22 @@ with tab2:
                                 mode="lines",
                                 name=f"{kw}{label_suffix}",
                                 line=dict(color=_color_map[kw], dash=dash, width=2),
+                                customdata=_sub["_week"].apply(_wk_label),
                                 hovertemplate=(
                                     f"<b>{kw}{label_suffix}</b><br>"
-                                    "주차: %{x}<br>검색수: %{y:,.0f}<extra></extra>"
+                                    "%{customdata}<br>검색수: %{y:,.0f}<extra></extra>"
                                 ),
                             ))
 
                     fig.update_layout(
                         title="올해 vs 작년 주간 검색수 추이",
-                        xaxis=dict(title="주차", dtick=4, range=[1, 53]),
+                        xaxis=dict(
+                            title=None,
+                            tickvals=_tickvals,
+                            ticktext=_ticktext,
+                            tickangle=-45,
+                            range=[1, 53],
+                        ),
                         yaxis=dict(title="추정 검색수"),
                         height=500,
                         hovermode="x unified",
