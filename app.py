@@ -412,6 +412,23 @@ def _period_filter(week_cols: list, key_prefix: str) -> list:
         return week_cols[s_idx:e_idx + 1]
 
 
+def _rank_style(df: pd.DataFrame, this_col: str, prev_col: str = None) -> pd.DataFrame:
+    """순위 테이블 행별 배경색 계산. 노란색(순위 3+ 하락) > 초록색(10위 밖) 우선."""
+    result = pd.DataFrame("", index=df.index, columns=df.columns)
+    for i in range(len(df)):
+        this_r = pd.to_numeric(df[this_col].iloc[i], errors="coerce") if this_col in df.columns else float("nan")
+        prev_r = (
+            pd.to_numeric(df[prev_col].iloc[i], errors="coerce")
+            if (prev_col and prev_col in df.columns)
+            else float("nan")
+        )
+        is_yellow = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 3
+        is_green  = pd.notna(this_r) and this_r > 10
+        bg = "background-color: #fff9c4" if is_yellow else ("background-color: #c8f7c5" if is_green else "")
+        result.iloc[i, :] = bg
+    return result
+
+
 def _render_rank_tab(
     upload_label: str,
     uploader_key: str,
@@ -420,6 +437,7 @@ def _render_rank_tab(
     sheet_name: str,
     load_fn,
     tab_label: str,
+    use_styling: bool = False,
 ):
     """순위 탭 공통 렌더링"""
 
@@ -453,6 +471,21 @@ def _render_rank_tab(
     if _parsed_summary is not None:
         _disp = _parsed_summary.sort_values("avg_rank").copy()
         _disp = _multiselect_filter(_disp, f"{uploader_key}_up")
+        _disp = _disp.reset_index(drop=True)
+
+        # 스타일링용 원본 avg_rank 캡처 (keyword ⚠️ 변환 전)
+        _style_ranks = pd.to_numeric(_disp["avg_rank"], errors="coerce") if "avg_rank" in _disp.columns else pd.Series(dtype=float)
+        _style_kws   = _disp["keyword"].tolist() if "keyword" in _disp.columns else []
+
+        # 지난주 순위 로드 (이력 시트 마지막 저장 주차)
+        _prev_rank_map: dict = {}
+        if use_styling:
+            _ph = load_fn()
+            if not _ph.empty:
+                _phdc = [c for c in _ph.columns if c not in {"keyword", "계절", "품목"}]
+                if _phdc:
+                    _prev_rank_map = _ph.set_index("keyword")[_phdc[-1]].to_dict()
+
         _disp["keyword"] = _disp.apply(
             lambda r: f"⚠️ {r['keyword']}"
             if pd.to_numeric(r["avg_rank"], errors="coerce") >= 10
@@ -462,10 +495,28 @@ def _render_rank_tab(
         _col_order = ["keyword"] + [c for c in ("계절", "품목") if c in _disp.columns]
         _col_order += [c for c in _RANK_SHOW_COLS if c != "keyword" and c in _disp.columns]
         _disp = _disp[[c for c in _col_order if c in _disp.columns]]
-        _disp = _disp.rename(columns={**_RANK_COL_KR, "avg_rank": f"평균노출순위 ({_date_label})"})
+        _rank_col_label = f"평균노출순위 ({_date_label})"
+        _disp = _disp.rename(columns={**_RANK_COL_KR, "avg_rank": _rank_col_label})
+        _disp = _disp.reset_index(drop=True)
 
         st.metric("키워드 수", len(_disp))
-        st.dataframe(_disp, use_container_width=True, hide_index=True, height=350)
+
+        if use_styling:
+            def _upload_style(df):
+                result = pd.DataFrame("", index=df.index, columns=df.columns)
+                for i in range(len(df)):
+                    this_r = _style_ranks.iloc[i] if i < len(_style_ranks) else float("nan")
+                    orig_kw = _style_kws[i] if i < len(_style_kws) else ""
+                    prev_r = pd.to_numeric(_prev_rank_map.get(str(orig_kw).strip()), errors="coerce")
+                    is_yellow = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 3
+                    is_green  = pd.notna(this_r) and this_r > 10
+                    bg = "background-color: #fff9c4" if is_yellow else ("background-color: #c8f7c5" if is_green else "")
+                    result.iloc[i, :] = bg
+                return result
+            st.dataframe(_disp.style.apply(_upload_style, axis=None),
+                         use_container_width=True, hide_index=True, height=350)
+        else:
+            st.dataframe(_disp, use_container_width=True, hide_index=True, height=350)
 
         # ══ 섹션 3: 저장 버튼 ══
         if st.button(f"📤 Google Sheets에 저장 ({_date_label})", key=f"save_{uploader_key}"):
@@ -486,13 +537,24 @@ def _render_rank_tab(
             _col_order = ["keyword"] + [c for c in ("계절", "품목") if c in _hist.columns] + _date_cols
             _hist = _hist[[c for c in _col_order if c in _hist.columns]]
 
+            _sel_date_cols: list = []
             if _date_cols:
                 _sel_date_cols = _period_filter(_date_cols, uploader_key)
                 _non_date = [c for c in _hist.columns if c not in _date_cols]
                 _hist = _hist[_non_date + _sel_date_cols]
 
             _hist = _multiselect_filter(_hist, f"{uploader_key}_hist")
-            st.dataframe(_hist, use_container_width=True, hide_index=True, height=350)
+            _hist = _hist.reset_index(drop=True)
+
+            if use_styling and len(_sel_date_cols) >= 2:
+                _this_col = _sel_date_cols[-1]
+                _prev_col = _sel_date_cols[-2]
+                st.dataframe(
+                    _hist.style.apply(_rank_style, this_col=_this_col, prev_col=_prev_col, axis=None),
+                    use_container_width=True, hide_index=True, height=350,
+                )
+            else:
+                st.dataframe(_hist, use_container_width=True, hide_index=True, height=350)
         else:
             st.info("데이터가 없습니다. CSV 파일을 업로드해주세요.")
 
@@ -924,6 +986,7 @@ with tab3:
         sheet_name=config.SHEET_NAME_RANK_SHOPPING,
         load_fn=load_rank_shopping,
         tab_label="쇼핑검색",
+        use_styling=True,
     )
 
 
@@ -937,6 +1000,7 @@ with tab4:
         sheet_name=config.SHEET_NAME_RANK_POWERLINK,
         load_fn=load_rank_powerlink,
         tab_label="파워링크",
+        use_styling=True,
     )
 
 
