@@ -5,6 +5,7 @@ Streamlit 기반 - 주간 검색수 트래킹 & 트렌드 분석
 실행: streamlit run app.py
 """
 import os
+import json
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -242,7 +243,11 @@ span[data-baseweb="tag"] {
     color: #4361ee;
     font-weight: 700;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"] [data-baseweb="radio"] {
+/* 라디오 원형 도트만 숨김 (항목 행 전체를 숨기지 않음) */
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-baseweb="radio"] > div:first-child {
+    display: none !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     display: none !important;
 }
 </style>
@@ -359,6 +364,25 @@ selected_menu = st.sidebar.radio(
 )
 
 meta_df = load_meta()
+
+# ── 필터 상태 JSON 저장/로드 ──────────────────────
+_FILTER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "filter_state.json")
+
+def _load_filter_state() -> dict:
+    try:
+        with open(_FILTER_FILE, "r", encoding="utf-8") as _f:
+            return json.load(_f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _save_filter_state(state: dict):
+    try:
+        with open(_FILTER_FILE, "w", encoding="utf-8") as _f:
+            json.dump(state, _f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+_saved_filters = _load_filter_state()
 
 # ── 필터 기본값 (주간 검색수 / 연간 트렌드 탭에서 인라인으로 재설정)
 selected_seasons: list = []
@@ -885,19 +909,36 @@ def _render_rank_tab(
 
 # ── 주간 검색수 ──
 if selected_menu == "📈 주간 검색수":
-    # ── 인라인 필터 (가로 4열) ────────────────────
+    # ── 인라인 필터 (가로 4열) — 저장된 값을 기본값으로 ─
     _s_opts = sorted(meta_df["계절"].dropna().unique().tolist()) if "계절" in meta_df.columns else []
     _c_opts = sorted(meta_df["카테고리"].dropna().unique().tolist()) if "카테고리" in meta_df.columns else []
     _g_opts = sorted(meta_df["성별/나이"].dropna().unique().tolist()) if "성별/나이" in meta_df.columns else []
     _wf1, _wf2, _wf3, _wf4 = st.columns(4)
     with _wf1:
-        selected_seasons = st.multiselect("계절", _s_opts, placeholder="전체", key="w_seasons")
+        selected_seasons = st.multiselect(
+            "계절", _s_opts,
+            default=[v for v in _saved_filters.get("seasons", []) if v in _s_opts],
+            placeholder="전체", key="w_seasons",
+        )
     with _wf2:
-        selected_categories = st.multiselect("카테고리", _c_opts, placeholder="전체", key="w_categories")
+        selected_categories = st.multiselect(
+            "카테고리", _c_opts,
+            default=[v for v in _saved_filters.get("categories", []) if v in _c_opts],
+            placeholder="전체", key="w_categories",
+        )
     with _wf3:
-        selected_genders = st.multiselect("성별/나이", _g_opts, placeholder="전체", key="w_genders")
+        selected_genders = st.multiselect(
+            "성별/나이", _g_opts,
+            default=[v for v in _saved_filters.get("genders", []) if v in _g_opts],
+            placeholder="전체", key="w_genders",
+        )
     with _wf4:
         keyword_search = st.text_input("🔎 키워드 검색", placeholder="키워드명 입력...", key="w_kw_search")
+    # 변경 시 저장
+    _cur_filters = {"seasons": selected_seasons, "categories": selected_categories, "genders": selected_genders}
+    if _cur_filters != {k: _saved_filters.get(k, []) for k in ("seasons", "categories", "genders")}:
+        _save_filter_state(_cur_filters)
+        _saved_filters = _cur_filters
 
     weekly_df = load_weekly()
 
