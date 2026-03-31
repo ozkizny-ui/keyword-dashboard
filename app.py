@@ -218,6 +218,34 @@ span[data-baseweb="tag"] {
     font-size: 1rem; font-weight: 700; color: #1e293b;
     padding-bottom: 0.5rem; border-bottom: 2px solid #eef0fd; margin-bottom: 1rem;
 }
+
+/* ── 사이드바 라디오 네비게이션 ── */
+[data-testid="stSidebar"] [data-testid="stRadio"] > div {
+    display: flex; flex-direction: column; gap: 2px;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    display: flex; align-items: center;
+    padding: 0.45rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #475569;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+    background: #eef0fd;
+    color: #4361ee;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] [aria-checked="true"] ~ label,
+[data-testid="stSidebar"] [data-testid="stRadio"] input:checked + div label {
+    background: #eef0fd;
+    color: #4361ee;
+    font-weight: 700;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-baseweb="radio"] {
+    display: none !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -306,7 +334,7 @@ def alert_badge(change_pct: float) -> str:
 
 
 # ══════════════════════════════════════════════
-# 사이드바 - 필터
+# 사이드바 - 로고 + 메뉴 + 조건부 필터
 # ══════════════════════════════════════════════
 
 if os.path.exists("logo.png"):
@@ -314,14 +342,21 @@ if os.path.exists("logo.png"):
 else:
     st.sidebar.markdown(
         "<div style='font-size:1.1rem;font-weight:800;color:#4361ee;letter-spacing:-0.02em;"
-        "padding:0.5rem 0 0.25rem;'>오즈키즈</div>",
+        "padding:0.5rem 0 0.5rem;'>오즈키즈</div>",
         unsafe_allow_html=True,
     )
+
+# ── 메뉴 ──────────────────────────────────────
 st.sidebar.markdown(
     "<div style='font-size:0.7rem;font-weight:700;color:#94a3b8;text-transform:uppercase;"
-    "letter-spacing:0.1em;padding:0.75rem 0 0.4rem;border-top:1px solid #e8ecf0;"
-    "margin-top:0.5rem;'>필터</div>",
+    "letter-spacing:0.1em;padding:0.5rem 0 0.3rem;border-top:1px solid #e8ecf0;'>메뉴</div>",
     unsafe_allow_html=True,
+)
+_MENU_ITEMS = ["주간 검색수", "연간 트렌드", "쇼핑검색 순위", "파워링크 순위", "블로그 순위", "데이터 관리"]
+selected_menu = st.sidebar.radio(
+    "메뉴",
+    _MENU_ITEMS,
+    label_visibility="collapsed",
 )
 
 meta_df = load_meta()
@@ -342,53 +377,55 @@ def _save_filter_state(state: dict):
 
 _saved_filters = _load_filter_state()
 
-# session_state 초기화 — 앱 재시작 시 JSON에서 복원
-for _key, _json_key in [
-    ("filter_seasons", "seasons"),
-    ("filter_categories", "categories"),
-    ("filter_genders", "genders"),
-]:
-    if _key not in st.session_state:
-        st.session_state[_key] = _saved_filters.get(_json_key, [])
+# ── 필터 (주간 검색수 / 연간 트렌드에서만 표시) ──
+if selected_menu in ("주간 검색수", "연간 트렌드"):
+    st.sidebar.markdown(
+        "<div style='font-size:0.7rem;font-weight:700;color:#94a3b8;text-transform:uppercase;"
+        "letter-spacing:0.1em;padding:0.75rem 0 0.3rem;border-top:1px solid #e8ecf0;"
+        "margin-top:0.5rem;'>필터</div>",
+        unsafe_allow_html=True,
+    )
 
-# 필터 1: 계절
-season_options = sorted(meta_df["계절"].dropna().unique().tolist()) if "계절" in meta_df.columns else []
-selected_seasons = st.sidebar.multiselect(
-    "계절 (미선택 = 전체)",
-    season_options,
-    default=[v for v in st.session_state["filter_seasons"] if v in season_options],
-    key="filter_seasons",
-)
+    # session_state 초기화
+    for _key, _json_key in [
+        ("filter_seasons", "seasons"),
+        ("filter_categories", "categories"),
+        ("filter_genders", "genders"),
+    ]:
+        if _key not in st.session_state:
+            st.session_state[_key] = _saved_filters.get(_json_key, [])
 
-# 필터 2: 카테고리
-category_options = sorted(meta_df["카테고리"].dropna().unique().tolist()) if "카테고리" in meta_df.columns else []
-selected_categories = st.sidebar.multiselect(
-    "카테고리 (미선택 = 전체)",
-    category_options,
-    default=[v for v in st.session_state["filter_categories"] if v in category_options],
-    key="filter_categories",
-)
+    season_options = sorted(meta_df["계절"].dropna().unique().tolist()) if "계절" in meta_df.columns else []
+    selected_seasons = st.sidebar.multiselect(
+        "계절 (미선택 = 전체)", season_options,
+        default=[v for v in st.session_state["filter_seasons"] if v in season_options],
+        key="filter_seasons",
+    )
 
-# 필터 3: 성별/나이
-gender_options = sorted(meta_df["성별/나이"].dropna().unique().tolist()) if "성별/나이" in meta_df.columns else []
-selected_genders = st.sidebar.multiselect(
-    "성별/나이 (미선택 = 전체)",
-    gender_options,
-    default=[v for v in st.session_state["filter_genders"] if v in gender_options],
-    key="filter_genders",
-)
+    category_options = sorted(meta_df["카테고리"].dropna().unique().tolist()) if "카테고리" in meta_df.columns else []
+    selected_categories = st.sidebar.multiselect(
+        "카테고리 (미선택 = 전체)", category_options,
+        default=[v for v in st.session_state["filter_categories"] if v in category_options],
+        key="filter_categories",
+    )
 
-# 필터 변경 시 JSON에 저장
-_cur_filters = {
-    "seasons": selected_seasons,
-    "categories": selected_categories,
-    "genders": selected_genders,
-}
-if _cur_filters != _saved_filters:
-    _save_filter_state(_cur_filters)
+    gender_options = sorted(meta_df["성별/나이"].dropna().unique().tolist()) if "성별/나이" in meta_df.columns else []
+    selected_genders = st.sidebar.multiselect(
+        "성별/나이 (미선택 = 전체)", gender_options,
+        default=[v for v in st.session_state["filter_genders"] if v in gender_options],
+        key="filter_genders",
+    )
 
-# 키워드 직접 검색
-keyword_search = st.sidebar.text_input("🔎 키워드 검색", placeholder="키워드명 입력...")
+    _cur_filters = {"seasons": selected_seasons, "categories": selected_categories, "genders": selected_genders}
+    if _cur_filters != _saved_filters:
+        _save_filter_state(_cur_filters)
+
+    keyword_search = st.sidebar.text_input("🔎 키워드 검색", placeholder="키워드명 입력...")
+else:
+    selected_seasons = []
+    selected_categories = []
+    selected_genders = []
+    keyword_search = ""
 
 
 def _get_season_top3(avail_kws: list, vol_df: pd.DataFrame) -> list:
@@ -460,14 +497,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "  주간 검색수  ",
-    "  연간 트렌드  ",
-    "  쇼핑검색 순위  ",
-    "  파워링크 순위  ",
-    "  블로그 순위  ",
-    "  데이터 관리  ",
-])
 
 
 # ══════════════════════════════════════════════
@@ -915,8 +944,8 @@ def _render_rank_tab(
             st.info("데이터가 없습니다. CSV 파일을 업로드해주세요.")
 
 
-# ── TAB 1: 주간 검색수 ──
-with tab1:
+# ── 주간 검색수 ──
+if selected_menu == "주간 검색수":
     weekly_df = load_weekly()
 
     if weekly_df.empty:
@@ -1194,8 +1223,8 @@ with tab1:
         )
 
 
-# ── TAB 2: 연간 트렌드 ──
-with tab2:
+# ── 연간 트렌드 ──
+elif selected_menu == "연간 트렌드":
     trend_df = load_trend()
 
     _has_trend_data = (
@@ -1344,8 +1373,8 @@ with tab2:
                             st.plotly_chart(fig2, use_container_width=True)
 
 
-# ── TAB 3: 쇼핑검색 순위 ──
-with tab3:
+# ── 쇼핑검색 순위 ──
+elif selected_menu == "쇼핑검색 순위":
     _render_rank_tab(
         upload_label="쇼핑검색 리포트 CSV 업로드",
         uploader_key="shopping_upload",
@@ -1359,8 +1388,8 @@ with tab3:
     )
 
 
-# ── TAB 4: 파워링크 순위 ──
-with tab4:
+# ── 파워링크 순위 ──
+elif selected_menu == "파워링크 순위":
     _render_rank_tab(
         upload_label="파워링크 리포트 CSV 업로드",
         uploader_key="powerlink_upload",
@@ -1374,8 +1403,8 @@ with tab4:
     )
 
 
-# ── TAB 5: 블로그 순위 ──
-with tab5:
+# ── 블로그 순위 ──
+elif selected_menu == "블로그 순위":
     _render_rank_tab(
         upload_label="블로그 순위 CSV/엑셀 업로드",
         uploader_key="blog_upload",
@@ -1387,8 +1416,8 @@ with tab5:
     )
 
 
-# ── TAB 6: 데이터 관리 ──
-with tab6:
+# ── 데이터 관리 ──
+elif selected_menu == "데이터 관리":
     st.subheader("⚙️ 데이터 관리 & 설정")
 
     col1, col2 = st.columns(2)
