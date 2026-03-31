@@ -28,31 +28,196 @@ from ad_rank_parser import parse_ad_report, parse_ad_report_multiweek, summarize
 
 st.set_page_config(
     page_title="오즈키즈 키워드 대시보드",
-    page_icon="🔍",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# 커스텀 CSS
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
-    html, body, [class*="css"] { font-family: 'Noto Sans KR', sans-serif; }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.2rem; border-radius: 12px; color: white; text-align: center;
-    }
-    .metric-card h3 { font-size: 0.85rem; font-weight: 300; margin: 0; opacity: 0.9; }
-    .metric-card p { font-size: 1.8rem; font-weight: 700; margin: 0.3rem 0 0 0; }
-    .change-up { color: #ff4b4b; font-weight: 700; }
-    .change-down { color: #0068c9; font-weight: 700; }
-    .alert-badge {
-        display: inline-block; padding: 2px 8px; border-radius: 20px;
-        font-size: 0.75rem; font-weight: 700;
-    }
-    .alert-hot { background: #ffe0e0; color: #d32f2f; }
-    .alert-cold { background: #e0e8ff; color: #1565c0; }
-    div[data-testid="stSidebar"] { background: #f8f9fc; }
+@import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&display=swap');
+
+/* ── 기본 폰트 ── */
+html, body, [class*="css"], .stMarkdown, .stDataFrame {
+    font-family: 'Pretendard', 'Noto Sans KR', -apple-system, sans-serif !important;
+}
+
+/* ── 배경 ── */
+[data-testid="stAppViewContainer"] { background: #f5f7fa; }
+[data-testid="stAppViewContainer"] > .main { background: #f5f7fa; }
+[data-testid="stMain"] { background: #f5f7fa; }
+.block-container { padding-top: 1.8rem !important; padding-bottom: 2rem !important; }
+
+/* ── 사이드바 ── */
+[data-testid="stSidebar"] {
+    background: #ffffff !important;
+    border-right: 1px solid #e8ecf0 !important;
+}
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
+    font-size: 0.95rem !important; font-weight: 700 !important;
+    color: #1e2a3a !important; letter-spacing: -0.01em;
+}
+[data-testid="stSidebar"] label {
+    font-size: 0.75rem !important; font-weight: 600 !important;
+    color: #64748b !important; text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+/* ── 메인 타이틀 ── */
+h1 { font-size: 1.55rem !important; font-weight: 800 !important;
+     color: #0f172a !important; letter-spacing: -0.03em !important; margin-bottom: 0 !important; }
+h2 { font-size: 1.15rem !important; font-weight: 700 !important; color: #1e293b !important; }
+h3 { font-size: 0.95rem !important; font-weight: 600 !important; color: #334155 !important; }
+
+/* ── 탭 ── */
+[data-testid="stTabs"] [role="tablist"] {
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 5px;
+    gap: 3px;
+    border: 1px solid #e8ecf0;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+[data-testid="stTabs"] [role="tab"] {
+    border-radius: 10px !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    color: #64748b !important;
+    padding: 0.45rem 1.1rem !important;
+    transition: all 0.18s ease;
+    border: none !important;
+}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+    background: #4361ee !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    box-shadow: 0 2px 10px rgba(67,97,238,0.28) !important;
+}
+[data-testid="stTabs"] [role="tab"]:hover:not([aria-selected="true"]) {
+    background: #eef0fd !important; color: #4361ee !important;
+}
+[data-testid="stTabs"] [role="tabpanel"] {
+    padding-top: 1.4rem !important;
+}
+
+/* ── 메트릭 카드 ── */
+[data-testid="stMetric"] {
+    background: #ffffff !important;
+    border-radius: 12px !important;
+    padding: 1rem 1.25rem !important;
+    border: 1px solid #e8ecf0 !important;
+    border-left: 3px solid #4361ee !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05) !important;
+}
+[data-testid="stMetric"] label {
+    font-size: 0.72rem !important; font-weight: 700 !important;
+    color: #64748b !important; text-transform: uppercase; letter-spacing: 0.07em;
+}
+[data-testid="stMetricValue"] {
+    font-size: 1.8rem !important; font-weight: 800 !important; color: #0f172a !important;
+}
+[data-testid="stMetricDelta"] { font-size: 0.8rem !important; font-weight: 600 !important; }
+
+/* ── 버튼 ── */
+.stButton > button {
+    border-radius: 10px !important; font-weight: 600 !important; font-size: 0.85rem !important;
+    border: 1.5px solid #e2e8f0 !important; transition: all 0.16s ease !important;
+    color: #475569 !important; background: #ffffff !important;
+}
+.stButton > button:hover {
+    border-color: #4361ee !important; color: #4361ee !important;
+    box-shadow: 0 2px 8px rgba(67,97,238,0.15) !important; background: #eef0fd !important;
+}
+.stButton > button[kind="primary"] {
+    background: #4361ee !important; color: #ffffff !important;
+    border: none !important; box-shadow: 0 2px 10px rgba(67,97,238,0.3) !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background: #3451d1 !important; color: #ffffff !important;
+}
+
+/* ── 파일 업로더 ── */
+[data-testid="stFileUploader"] {
+    background: #ffffff;
+    border-radius: 12px;
+    border: 2px dashed #c7d2fe !important;
+    transition: border-color 0.2s;
+}
+[data-testid="stFileUploader"]:hover { border-color: #4361ee !important; }
+[data-testid="stFileUploadDropzone"] {
+    background: #f8f9ff !important; border-radius: 10px;
+}
+
+/* ── 데이터프레임 ── */
+[data-testid="stDataFrame"] {
+    border-radius: 12px !important;
+    overflow: hidden;
+    border: 1px solid #e8ecf0 !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
+/* ── 구분선 ── */
+hr { border: none; border-top: 1px solid #e8ecf0; margin: 1.25rem 0; }
+
+/* ── 캡션 ── */
+[data-testid="stCaptionContainer"] p {
+    color: #94a3b8 !important; font-size: 0.78rem !important;
+}
+
+/* ── Expander ── */
+[data-testid="stExpander"] {
+    border-radius: 12px !important;
+    border: 1px solid #e8ecf0 !important;
+    background: #ffffff !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+}
+
+/* ── 알림 ── */
+[data-testid="stAlert"] { border-radius: 12px !important; border: none !important; }
+
+/* ── 멀티셀렉트 태그 ── */
+span[data-baseweb="tag"] {
+    background: #eef0fd !important; color: #4361ee !important;
+    border-radius: 6px !important; font-weight: 600 !important;
+}
+
+/* ── 텍스트 인풋 ── */
+[data-testid="stTextInput"] input {
+    border-radius: 10px !important; border-color: #e2e8f0 !important;
+    font-size: 0.875rem !important;
+}
+[data-testid="stTextInput"] input:focus {
+    border-color: #4361ee !important;
+    box-shadow: 0 0 0 2px rgba(67,97,238,0.15) !important;
+}
+
+/* ── 셀렉트박스 ── */
+[data-testid="stSelectbox"] > div > div {
+    border-radius: 10px !important; border-color: #e2e8f0 !important;
+}
+
+/* ── 커스텀 클래스 ── */
+.metric-card {
+    background: linear-gradient(135deg, #4361ee 0%, #7c3aed 100%);
+    padding: 1.25rem 1.5rem; border-radius: 14px; color: white; text-align: center;
+    box-shadow: 0 4px 16px rgba(67,97,238,0.22);
+}
+.metric-card h3 { font-size: 0.78rem; font-weight: 600; margin: 0; opacity: 0.85; letter-spacing: 0.06em; text-transform: uppercase; }
+.metric-card p  { font-size: 2rem; font-weight: 800; margin: 0.3rem 0 0; letter-spacing: -0.02em; }
+
+.change-up   { color: #ef4444; font-weight: 700; }
+.change-down { color: #3b82f6; font-weight: 700; }
+
+.alert-badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; }
+.alert-hot  { background: #fee2e2; color: #dc2626; }
+.alert-cold { background: #dbeafe; color: #1d4ed8; }
+
+/* ── 섹션 헤더 강조 ── */
+.section-header {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 1rem; font-weight: 700; color: #1e293b;
+    padding-bottom: 0.5rem; border-bottom: 2px solid #eef0fd; margin-bottom: 1rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -145,10 +310,19 @@ def alert_badge(change_pct: float) -> str:
 # ══════════════════════════════════════════════
 
 if os.path.exists("logo.png"):
-    st.sidebar.image("logo.png", width=80)
+    st.sidebar.image("logo.png", width=72)
 else:
-    st.sidebar.markdown("### 🏪 오즈키즈")
-st.sidebar.title("🔍 키워드 필터")
+    st.sidebar.markdown(
+        "<div style='font-size:1.1rem;font-weight:800;color:#4361ee;letter-spacing:-0.02em;"
+        "padding:0.5rem 0 0.25rem;'>오즈키즈</div>",
+        unsafe_allow_html=True,
+    )
+st.sidebar.markdown(
+    "<div style='font-size:0.7rem;font-weight:700;color:#94a3b8;text-transform:uppercase;"
+    "letter-spacing:0.1em;padding:0.75rem 0 0.4rem;border-top:1px solid #e8ecf0;"
+    "margin-top:0.5rem;'>필터</div>",
+    unsafe_allow_html=True,
+)
 
 meta_df = load_meta()
 
@@ -271,17 +445,28 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
 # 메인 대시보드
 # ══════════════════════════════════════════════
 
-st.title("📊 오즈키즈 키워드 검색수 대시보드")
-st.caption(f"마지막 업데이트: {datetime.now(KST).strftime('%Y-%m-%d %H:%M')} | 브랜드: {config.BRAND_STORE_NAME}")
+st.markdown(
+    f"""<div style="display:flex;align-items:center;justify-content:space-between;
+                   padding:0.25rem 0 1rem 0;">
+        <div>
+            <div style="font-size:1.55rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;
+                        line-height:1.2;">📊 오즈키즈 키워드 대시보드</div>
+            <div style="font-size:0.78rem;color:#94a3b8;margin-top:0.25rem;font-weight:400;">
+                브랜드: <b style="color:#64748b;">{config.BRAND_STORE_NAME}</b>
+                &nbsp;·&nbsp; 업데이트: {datetime.now(KST).strftime('%Y.%m.%d %H:%M')}
+            </div>
+        </div>
+    </div>""",
+    unsafe_allow_html=True,
+)
 
-# 탭 구성
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📈 주간 검색수",
-    "📊 연간 트렌드",
-    "🛒 쇼핑검색 순위",
-    "🔗 파워링크 순위",
-    "📝 블로그 순위",
-    "⚙️ 데이터 관리",
+    "  주간 검색수  ",
+    "  연간 트렌드  ",
+    "  쇼핑검색 순위  ",
+    "  파워링크 순위  ",
+    "  블로그 순위  ",
+    "  데이터 관리  ",
 ])
 
 
@@ -448,7 +633,10 @@ def _render_rank_tab(
     """순위 탭 공통 렌더링"""
 
     # ══ 섹션 1: CSV 업로드 ══
-    st.markdown(f"#### 📂 {upload_label}")
+    st.markdown(
+        f"<div class='section-header'>📂 {upload_label}</div>",
+        unsafe_allow_html=True,
+    )
     uploaded = st.file_uploader(
         f"{upload_label} (CSV/Excel)",
         type=["csv", "xlsx", "xls"],
