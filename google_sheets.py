@@ -222,7 +222,9 @@ def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
 
     existing = ws.get_all_values()
 
-    if not existing:
+    # 헤더에 "keyword" 컬럼이 없으면 시트 초기화 후 새로 작성
+    if not existing or "keyword" not in existing[0]:
+        ws.clear()
         header = ["계절", "품목", "keyword", week_label]
         rows = [header]
         for kw, val in rank_map.items():
@@ -231,7 +233,7 @@ def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
         return
 
     header = existing[0]
-    kw_col_idx     = header.index("keyword") if "keyword" in header else 0
+    kw_col_idx     = header.index("keyword")
     season_col_idx = header.index("계절")    if "계절"    in header else None
     item_col_idx   = header.index("품목")    if "품목"    in header else None
 
