@@ -351,11 +351,6 @@ else:
     )
 
 # ── 메뉴 ──────────────────────────────────────
-st.sidebar.markdown(
-    "<div style='font-size:0.7rem;font-weight:700;color:#94a3b8;text-transform:uppercase;"
-    "letter-spacing:0.1em;padding:0.5rem 0 0.3rem;border-top:1px solid #e8ecf0;'>메뉴</div>",
-    unsafe_allow_html=True,
-)
 _MENU_ITEMS = ["📈 주간 검색수", "📊 연간 트렌드", "🛒 쇼핑검색 순위", "🔗 파워링크 순위", "📝 블로그 순위", "⚙️ 데이터 관리"]
 selected_menu = st.sidebar.radio(
     "메뉴",
