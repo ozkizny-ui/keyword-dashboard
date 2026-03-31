@@ -413,19 +413,24 @@ def _period_filter(week_cols: list, key_prefix: str) -> list:
 
 
 def _rank_style(df: pd.DataFrame, this_col: str, prev_col: str = None) -> pd.DataFrame:
-    """순위 테이블 행별 배경색 계산. 노란색(순위 3+ 하락) > 초록색(10위 밖) 우선."""
+    """순위 테이블 이번주 셀만 배경색. 🔻 4+ 하락 → 연한 파란색, ⚠️ 10위 밖 → 연한 노란색."""
     result = pd.DataFrame("", index=df.index, columns=df.columns)
+    if this_col not in df.columns:
+        return result
+    col_idx = df.columns.get_loc(this_col)
     for i in range(len(df)):
-        this_r = pd.to_numeric(df[this_col].iloc[i], errors="coerce") if this_col in df.columns else float("nan")
+        this_r = pd.to_numeric(df[this_col].iloc[i], errors="coerce")
         prev_r = (
             pd.to_numeric(df[prev_col].iloc[i], errors="coerce")
             if (prev_col and prev_col in df.columns)
             else float("nan")
         )
-        is_yellow = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 3
-        is_green  = pd.notna(this_r) and this_r > 10
-        bg = "background-color: #fff9c4" if is_yellow else ("background-color: #c8f7c5" if is_green else "")
-        result.iloc[i, :] = bg
+        is_drop = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4
+        is_warn = pd.notna(this_r) and this_r > 10
+        if is_drop:
+            result.iloc[i, col_idx] = "background-color: #e3f2fd"
+        elif is_warn:
+            result.iloc[i, col_idx] = "background-color: #fff9c4"
     return result
 
 
@@ -532,12 +537,12 @@ def _render_rank_tab(
         _this_nums = pd.to_numeric(_disp["이번주"], errors="coerce") if "이번주" in _disp.columns else pd.Series(dtype=float)
         _prev_nums = pd.to_numeric(_disp["지난주"], errors="coerce") if "지난주" in _disp.columns else pd.Series(dtype=float)
 
-        # 키워드 컬럼에 아이콘 추가 (🔻: 3 이상 하락, ⚠️: 10위 초과)
+        # 키워드 컬럼에 아이콘 추가 (🔻: 4 이상 하락, ⚠️: 10위 초과)
         def _kw_icon(i):
             kw = str(_disp["keyword"].iloc[i])
             this_r = _this_nums.iloc[i] if i < len(_this_nums) else float("nan")
             prev_r = _prev_nums.iloc[i] if i < len(_prev_nums) else float("nan")
-            if pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 3:
+            if pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4:
                 return f"🔻 {kw}"
             elif pd.notna(this_r) and this_r > 10:
                 return f"⚠️ {kw}"
@@ -565,8 +570,8 @@ def _render_rank_tab(
             for i in range(len(df)):
                 this_r = _this_nums.iloc[i] if i < len(_this_nums) else float("nan")
                 prev_r = _prev_nums.iloc[i] if i < len(_prev_nums) else float("nan")
-                if pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 3:
-                    result.iloc[i, col_idx] = "background-color: #ffebee"
+                if pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4:
+                    result.iloc[i, col_idx] = "background-color: #e3f2fd"
                 elif pd.notna(this_r) and this_r > 10:
                     result.iloc[i, col_idx] = "background-color: #fff9c4"
             return result
@@ -608,12 +613,18 @@ def _render_rank_tab(
                 if _phdc:
                     _prev_rank_map = _ph.set_index("keyword")[_phdc[-1]].to_dict()
 
-        _disp["keyword"] = _disp.apply(
-            lambda r: f"⚠️ {r['keyword']}"
-            if pd.to_numeric(r["avg_rank"], errors="coerce") >= 10
-            else r["keyword"],
-            axis=1,
-        )
+        # 키워드 아이콘 추가 (🔻: 4이상 하락, ⚠️: 10위 초과)
+        def _add_kw_icon(r):
+            kw = r["keyword"]
+            this_r = pd.to_numeric(r["avg_rank"], errors="coerce")
+            prev_r = pd.to_numeric(_prev_rank_map.get(str(kw).strip()), errors="coerce") if _prev_rank_map else float("nan")
+            if pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4:
+                return f"🔻 {kw}"
+            elif pd.notna(this_r) and this_r > 10:
+                return f"⚠️ {kw}"
+            return kw
+
+        _disp["keyword"] = _disp.apply(_add_kw_icon, axis=1)
         _col_order = ["keyword"] + [c for c in ("계절", "품목") if c in _disp.columns]
         _col_order += [c for c in _RANK_SHOW_COLS if c != "keyword" and c in _disp.columns]
         _disp = _disp[[c for c in _col_order if c in _disp.columns]]
@@ -627,14 +638,19 @@ def _render_rank_tab(
         if use_styling:
             def _upload_style(df):
                 result = pd.DataFrame("", index=df.index, columns=df.columns)
+                _rank_label = [c for c in df.columns if "평균노출순위" in c]
+                _rank_ci = df.columns.get_loc(_rank_label[0]) if _rank_label else -1
                 for i in range(len(df)):
                     this_r = _style_ranks.iloc[i] if i < len(_style_ranks) else float("nan")
                     orig_kw = _style_kws[i] if i < len(_style_kws) else ""
                     prev_r = pd.to_numeric(_prev_rank_map.get(str(orig_kw).strip()), errors="coerce")
-                    is_drop = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 3
+                    is_drop = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4
                     is_warn = pd.notna(this_r) and this_r > 10
-                    bg = "background-color: #ffebee" if is_drop else ("background-color: #fff9c4" if is_warn else "")
-                    result.iloc[i, :] = bg
+                    if _rank_ci >= 0:
+                        if is_drop:
+                            result.iloc[i, _rank_ci] = "background-color: #e3f2fd"
+                        elif is_warn:
+                            result.iloc[i, _rank_ci] = "background-color: #fff9c4"
                 return result
             st.dataframe(
                 _disp.style.apply(_upload_style, axis=None).format(_num_cols_disp, na_rep="-"),
@@ -673,6 +689,25 @@ def _render_rank_tab(
 
             _hist = _multiselect_filter(_hist, f"{uploader_key}_hist")
             _hist = _hist.reset_index(drop=True)
+
+            # 히스토리 뷰에도 아이콘 추가
+            if use_styling and len(_sel_date_cols) >= 2:
+                _h_this = _sel_date_cols[-1]
+                _h_prev = _sel_date_cols[-2]
+                _h_this_nums = pd.to_numeric(_hist[_h_this], errors="coerce") if _h_this in _hist.columns else pd.Series(dtype=float)
+                _h_prev_nums = pd.to_numeric(_hist[_h_prev], errors="coerce") if _h_prev in _hist.columns else pd.Series(dtype=float)
+
+                def _hist_kw_icon(i):
+                    kw = str(_hist["keyword"].iloc[i])
+                    this_r = _h_this_nums.iloc[i] if i < len(_h_this_nums) else float("nan")
+                    prev_r = _h_prev_nums.iloc[i] if i < len(_h_prev_nums) else float("nan")
+                    if pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4:
+                        return f"🔻 {kw}"
+                    elif pd.notna(this_r) and this_r > 10:
+                        return f"⚠️ {kw}"
+                    return kw
+
+                _hist["keyword"] = [_hist_kw_icon(i) for i in range(len(_hist))]
 
             _hist_num_fmt = {c: "{:,.0f}" for c in _hist.columns if pd.api.types.is_numeric_dtype(_hist[c])}
             if use_styling and len(_sel_date_cols) >= 2:
