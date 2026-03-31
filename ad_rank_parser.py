@@ -20,9 +20,15 @@ from datetime import datetime, timedelta
 
 
 def _find_col(cols: list, candidates: list) -> str | None:
-    """컬럼 목록에서 후보와 부분 일치하는 첫 번째 컬럼 반환 (공백 제거 후 비교)."""
-    for col in cols:
-        clean = str(col).strip().replace(" ", "")
+    """컬럼 목록에서 후보와 일치하는 첫 번째 컬럼 반환 (공백 제거 후 비교).
+    정확 일치를 부분 일치보다 우선하여 '키워드ID' 같은 오매핑 방지."""
+    cleaned = [(col, str(col).strip().replace(" ", "")) for col in cols]
+    # 1차: 정확 일치
+    for col, clean in cleaned:
+        if clean in candidates:
+            return col
+    # 2차: 부분 일치
+    for col, clean in cleaned:
         for cand in candidates:
             if cand in clean:
                 return col

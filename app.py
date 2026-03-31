@@ -631,9 +631,9 @@ def _render_rank_tab(
                     this_r = _style_ranks.iloc[i] if i < len(_style_ranks) else float("nan")
                     orig_kw = _style_kws[i] if i < len(_style_kws) else ""
                     prev_r = pd.to_numeric(_prev_rank_map.get(str(orig_kw).strip()), errors="coerce")
-                    is_yellow = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 3
-                    is_green  = pd.notna(this_r) and this_r > 10
-                    bg = "background-color: #fff9c4" if is_yellow else ("background-color: #c8f7c5" if is_green else "")
+                    is_drop = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 3
+                    is_warn = pd.notna(this_r) and this_r > 10
+                    bg = "background-color: #ffebee" if is_drop else ("background-color: #fff9c4" if is_warn else "")
                     result.iloc[i, :] = bg
                 return result
             st.dataframe(
