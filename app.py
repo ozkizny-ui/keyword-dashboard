@@ -1630,6 +1630,39 @@ elif selected_menu == "🔗 파워링크 순위":
 elif selected_menu == "📝 블로그/카페 순위":
     st.subheader("📝 블로그/카페 순위")
 
+    # ── API 응답 진단 (bloggerlink 확인용)
+    with st.expander("🔧 API 응답 진단 (bloggerlink 확인)"):
+        _diag_kw = st.text_input("테스트할 키워드", placeholder="예: 아동복", key="diag_kw")
+        if st.button("진단 실행", key="diag_run"):
+            if _diag_kw:
+                import requests as _req
+                _diag_headers = {
+                    "X-Naver-Client-Id": config.NAVER_CLIENT_ID,
+                    "X-Naver-Client-Secret": config.NAVER_CLIENT_SECRET,
+                }
+                try:
+                    _r = _req.get(
+                        "https://openapi.naver.com/v1/search/blog.json",
+                        headers=_diag_headers,
+                        params={"query": _diag_kw, "display": 10, "start": 1, "sort": "sim"},
+                        timeout=10,
+                    )
+                    if _r.status_code == 200:
+                        _items = _r.json().get("items", [])
+                        st.caption(f"총 {len(_items)}개 결과 반환")
+                        for _ii, _it in enumerate(_items[:10], 1):
+                            st.markdown(
+                                f"**{_ii}.** bloggername=`{_it.get('bloggername','')}` "
+                                f"| bloggerlink=`{_it.get('bloggerlink','')}` "
+                                f"| link=`{_it.get('link','')[:60]}...`"
+                            )
+                    else:
+                        st.error(f"API 오류 {_r.status_code}: {_r.text[:200]}")
+                except Exception as _de:
+                    st.error(f"요청 실패: {_de}")
+            else:
+                st.warning("키워드를 입력하세요.")
+
     # ── 자동 조회 버튼 (2열 나란히)
     _btn_col1, _btn_col2 = st.columns(2)
 
