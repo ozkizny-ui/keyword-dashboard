@@ -51,7 +51,7 @@ html, body, [class*="css"], .stMarkdown, .stDataFrame {
 [data-testid="stAppViewContainer"] > .main { background: #f5f7fa; }
 [data-testid="stMain"] { background: #f5f7fa; }
 .block-container {
-    padding-top: 1.8rem !important;
+    padding-top: 1rem !important;
     padding-bottom: 2rem !important;
     max-width: 100% !important;
 }
@@ -558,7 +558,7 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
 # ══════════════════════════════════════════════
 
 st.markdown(
-    f"""<div style="padding:0.25rem 0 0.75rem 0;">
+    f"""<div style="padding:0.25rem 0 1.25rem 0;">
         <div style="font-size:clamp(1.1rem,4vw,1.55rem);font-weight:800;color:#0f172a;
                     letter-spacing:-0.03em;line-height:1.2;">📊 오즈키즈 키워드 대시보드</div>
         <div style="font-size:clamp(0.7rem,2.5vw,0.78rem);color:#94a3b8;
