@@ -237,3 +237,92 @@ def estimate_weekly_search_volume(
             })
 
     return pd.DataFrame(result_rows)
+
+
+# ══════════════════════════════════════════════
+# 네이버 검색 API — 블로그/카페 순위 조회
+# ══════════════════════════════════════════════
+
+def _search_api_headers() -> dict:
+    """네이버 검색 API 공통 헤더"""
+    return {
+        "X-Naver-Client-Id": config.NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": config.NAVER_CLIENT_SECRET,
+    }
+
+
+def fetch_blog_rank(keywords: list, progress_cb=None) -> pd.DataFrame:
+    """
+    키워드별 네이버 블로그 검색 순위 조회.
+    오즈키즈 블로그(bloggerlink에 'ozkiz' 포함)가 몇 번째인지 반환.
+    없으면 0. 반환 컬럼: keyword, rank
+    """
+    if not config.NAVER_CLIENT_ID or not config.NAVER_CLIENT_SECRET:
+        return pd.DataFrame(columns=["keyword", "rank"])
+
+    url = "https://openapi.naver.com/v1/search/blog.json"
+    headers = _search_api_headers()
+    results = []
+
+    for idx, kw in enumerate(keywords):
+        if progress_cb:
+            progress_cb(idx, len(keywords), kw)
+        rank = 0
+        try:
+            resp = requests.get(
+                url,
+                headers=headers,
+                params={"query": kw, "display": 100, "start": 1, "sort": "sim"},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                for i, item in enumerate(resp.json().get("items", []), start=1):
+                    if "ozkiz" in item.get("bloggerlink", "").lower():
+                        rank = i
+                        break
+        except Exception:
+            rank = 0
+        results.append({"keyword": kw, "rank": rank})
+        time.sleep(0.2)
+
+    return pd.DataFrame(results)
+
+
+def fetch_cafe_rank(keywords: list, progress_cb=None) -> pd.DataFrame:
+    """
+    키워드별 네이버 카페 검색 순위 조회.
+    오즈키즈 관련 게시글(title/description에 '오즈키즈' 또는 'ozkiz' 포함)이 몇 번째인지 반환.
+    없으면 0. 반환 컬럼: keyword, rank
+    """
+    if not config.NAVER_CLIENT_ID or not config.NAVER_CLIENT_SECRET:
+        return pd.DataFrame(columns=["keyword", "rank"])
+
+    url = "https://openapi.naver.com/v1/search/cafearticle.json"
+    headers = _search_api_headers()
+    results = []
+
+    for idx, kw in enumerate(keywords):
+        if progress_cb:
+            progress_cb(idx, len(keywords), kw)
+        rank = 0
+        try:
+            resp = requests.get(
+                url,
+                headers=headers,
+                params={"query": kw, "display": 100, "start": 1, "sort": "sim"},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                for i, item in enumerate(resp.json().get("items", []), start=1):
+                    title = item.get("title", "").lower()
+                    desc  = item.get("description", "").lower()
+                    if "오즈키즈" in title or "ozkiz" in title or \
+                       "오즈키즈" in desc  or "ozkiz" in desc:
+                        rank = i
+                        break
+        except Exception:
+            rank = 0
+        results.append({"keyword": kw, "rank": rank})
+        time.sleep(0.2)
+
+    return pd.DataFrame(results)

@@ -400,6 +400,10 @@ def load_rank_blog():
     return read_rank_history(config.SHEET_NAME_RANK_BLOG)
 
 @st.cache_data(ttl=300)
+def load_rank_cafe():
+    return read_rank_history(config.SHEET_NAME_RANK_CAFE)
+
+@st.cache_data(ttl=300)
 def load_setting(key: str, fallback: str = "") -> str:
     """'설정' 시트에서 값 읽기 (5분 캐시, API 호출 최소화)"""
     try:
@@ -468,7 +472,7 @@ else:
     )
 
 # ── 메뉴 ──────────────────────────────────────
-_MENU_ITEMS = ["📈 주간 검색수", "📊 연간 트렌드", "🛒 쇼핑검색 순위", "🔗 파워링크 순위", "📝 블로그 순위", "⚙️ 데이터 관리"]
+_MENU_ITEMS = ["📈 주간 검색수", "📊 연간 트렌드", "🛒 쇼핑검색 순위", "🔗 파워링크 순위", "📝 블로그/카페 순위", "⚙️ 데이터 관리"]
 selected_menu = st.sidebar.radio(
     "메뉴",
     _MENU_ITEMS,
@@ -1036,6 +1040,84 @@ def _render_rank_tab(
             st.info("데이터가 없습니다. CSV 파일을 업로드해주세요.")
 
 
+# ── 블로그/카페 순위 공통 테이블 렌더링 ──────────────
+def _render_blog_cafe_table(raw_df: pd.DataFrame, key_prefix: str):
+    """블로그/카페 순위 이력 테이블 렌더링 (공통)"""
+    if raw_df.empty:
+        st.info("데이터가 없습니다. 자동 조회 버튼을 눌러 수집해주세요.")
+        return
+
+    _bc_meta_set = {"keyword", "계절", "품목"}
+    _bc_date_cols = [c for c in raw_df.columns if c not in _bc_meta_set]
+    if not _bc_date_cols:
+        st.warning("날짜 컬럼이 없습니다.")
+        return
+
+    _bcdf = _merge_meta(raw_df.copy()).reset_index(drop=True)
+    _bc_this = _bc_date_cols[-1]
+    _bc_prev = _bc_date_cols[-2] if len(_bc_date_cols) >= 2 else None
+    st.caption(f"📅 이번주: {_bc_this}" + (f"  |  지난주: {_bc_prev}" if _bc_prev else ""))
+
+    def _bc_parse(v):
+        s = str(v).strip()
+        if s in ("서치피드", ""):
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+
+    def _bc_fmt(v):
+        s = str(v).strip()
+        if s == "서치피드":
+            return "서치피드"
+        n = _bc_parse(s)
+        if n is None:
+            return "-"
+        return "순위권 밖" if int(n) == 0 else str(int(n))
+
+    def _bc_icon(this_v, prev_v):
+        if this_v is None or prev_v is None or this_v == 0 or prev_v == 0:
+            return ""
+        return "🔺" if this_v < prev_v else ("🔻" if this_v > prev_v else "")
+
+    _bc_this_nums = _bcdf[_bc_this].apply(_bc_parse).reset_index(drop=True)
+    _bc_prev_nums = (
+        _bcdf[_bc_prev].apply(_bc_parse).reset_index(drop=True)
+        if _bc_prev else pd.Series([None] * len(_bcdf), dtype=object)
+    )
+    _bc_icons = [_bc_icon(_bc_this_nums.iloc[i], _bc_prev_nums.iloc[i]) for i in range(len(_bcdf))]
+
+    _bc_disp = pd.DataFrame()
+    _bc_disp["키워드"] = [
+        f"{ic} {kw}".strip() if ic else kw
+        for ic, kw in zip(_bc_icons, _bcdf["keyword"])
+    ]
+    if "계절" in _bcdf.columns:
+        _bc_disp["계절"] = _bcdf["계절"].values
+    if "품목" in _bcdf.columns:
+        _bc_disp["품목"] = _bcdf["품목"].values
+    _bc_disp[f"이번주 ({_bc_this})"] = _bcdf[_bc_this].apply(_bc_fmt).values
+    if _bc_prev:
+        _bc_disp[f"지난주 ({_bc_prev})"] = _bcdf[_bc_prev].apply(_bc_fmt).values
+
+    _bc_sort = _bc_this_nums.apply(lambda v: 9999 if (v is None or v == 0) else v)
+    _bc_disp = _bc_disp.iloc[_bc_sort.argsort().values].reset_index(drop=True)
+
+    st.metric("키워드 수", len(_bc_disp))
+    st.dataframe(_bc_disp, use_container_width=True, hide_index=True, height=420)
+
+    if len(_bc_date_cols) >= 2:
+        with st.expander("📅 전체 이력 보기"):
+            _bc_sel = _period_filter(_bc_date_cols, f"{key_prefix}_hist")
+            _bc_hist = _bcdf[
+                ["keyword"] + [c for c in ("계절", "품목") if c in _bcdf.columns] + _bc_sel
+            ].copy()
+            for _c in _bc_sel:
+                _bc_hist[_c] = _bc_hist[_c].apply(_bc_fmt)
+            st.dataframe(_bc_hist, use_container_width=True, hide_index=True, height=350)
+
+
 # ── 주간 검색수 ──
 if selected_menu == "📈 주간 검색수":
     # ── 인라인 필터 (가로 4열) — 저장된 값을 기본값으로 ─
@@ -1544,111 +1626,84 @@ elif selected_menu == "🔗 파워링크 순위":
     )
 
 
-# ── 블로그 순위 ──
-elif selected_menu == "📝 블로그 순위":
+# ── 블로그/카페 순위 ──
+elif selected_menu == "📝 블로그/카페 순위":
+    st.subheader("📝 블로그/카페 순위")
+
+    # ── 자동 조회 버튼 (2열 나란히)
+    _btn_col1, _btn_col2 = st.columns(2)
+
+    with _btn_col1:
+        if st.button("🔍 블로그 순위 자동 조회", key="fetch_blog", type="primary"):
+            _blog_prog = st.empty()
+            try:
+                from fetch_weekly_data import load_keywords as _load_kws, get_week_label as _get_wl
+                from naver_api import fetch_blog_rank
+                _blog_prog.info("⏳ 키워드 로드 중...")
+                _kws = _load_kws()
+                _wl = _get_wl()
+                _blog_pbar = st.progress(0)
+                _blog_ptxt = st.empty()
+                def _blog_cb(idx, total, kw):
+                    _blog_pbar.progress((idx + 1) / total)
+                    _blog_ptxt.caption(f"조회 중 ({idx+1}/{total}): {kw}")
+                _blog_result = fetch_blog_rank(_kws, progress_cb=_blog_cb)
+                _blog_pbar.empty(); _blog_ptxt.empty()
+                if not _blog_result.empty:
+                    append_rank_history(
+                        _blog_result.rename(columns={"rank": "avg_rank"}),
+                        _wl, config.SHEET_NAME_RANK_BLOG,
+                    )
+                    st.cache_data.clear()
+                    _blog_prog.success(f"✅ 블로그 저장 완료! ({_wl}, {len(_kws)}개)")
+                else:
+                    _blog_prog.warning("결과 없음")
+            except Exception as _e:
+                import traceback
+                _blog_prog.error(f"❌ 오류: {_e}")
+                st.code(traceback.format_exc())
+
+    with _btn_col2:
+        if st.button("🔍 카페 순위 자동 조회", key="fetch_cafe", type="primary"):
+            _cafe_prog = st.empty()
+            try:
+                from fetch_weekly_data import load_keywords as _load_kws2, get_week_label as _get_wl2
+                from naver_api import fetch_cafe_rank
+                _cafe_prog.info("⏳ 키워드 로드 중...")
+                _kws2 = _load_kws2()
+                _wl2 = _get_wl2()
+                _cafe_pbar = st.progress(0)
+                _cafe_ptxt = st.empty()
+                def _cafe_cb(idx, total, kw):
+                    _cafe_pbar.progress((idx + 1) / total)
+                    _cafe_ptxt.caption(f"조회 중 ({idx+1}/{total}): {kw}")
+                _cafe_result = fetch_cafe_rank(_kws2, progress_cb=_cafe_cb)
+                _cafe_pbar.empty(); _cafe_ptxt.empty()
+                if not _cafe_result.empty:
+                    append_rank_history(
+                        _cafe_result.rename(columns={"rank": "avg_rank"}),
+                        _wl2, config.SHEET_NAME_RANK_CAFE,
+                    )
+                    st.cache_data.clear()
+                    _cafe_prog.success(f"✅ 카페 저장 완료! ({_wl2}, {len(_kws2)}개)")
+                else:
+                    _cafe_prog.warning("결과 없음")
+            except Exception as _e:
+                import traceback
+                _cafe_prog.error(f"❌ 오류: {_e}")
+                st.code(traceback.format_exc())
+
+    st.markdown("---")
+
+    # ── 블로그 순위 테이블
     st.subheader("📝 블로그 순위")
+    _render_blog_cafe_table(load_rank_blog(), "blog")
 
-    blog_raw = load_rank_blog()
+    st.markdown("---")
 
-    if blog_raw.empty:
-        st.info("블로그 순위 데이터가 없습니다. Google Sheets '블로그순위' 시트를 확인해주세요.")
-    else:
-        # ── 날짜 컬럼 파악
-        _b_meta_set = {"keyword", "계절", "품목"}
-        _b_date_cols = [c for c in blog_raw.columns if c not in _b_meta_set]
-
-        if not _b_date_cols:
-            st.warning("날짜 컬럼이 없습니다.")
-        else:
-            # ── meta_df와 병합 (계절, 품목) — 인덱스 리셋으로 정렬 일관성 보장
-            _blog = _merge_meta(blog_raw.copy()).reset_index(drop=True)
-
-            _this_col = _b_date_cols[-1]
-            _prev_col = _b_date_cols[-2] if len(_b_date_cols) >= 2 else None
-
-            st.caption(f"📅 이번주: {_this_col}" + (f"  |  지난주: {_prev_col}" if _prev_col else ""))
-
-            # ── 순위값 → float 변환 (서치피드·빈값은 None)
-            def _parse_rank(v):
-                s = str(v).strip()
-                if s in ("서치피드", ""):
-                    return None
-                try:
-                    return float(s)
-                except ValueError:
-                    return None
-
-            # _blog 기준으로 통일 (merge 후 행 수·순서가 달라질 수 있으므로)
-            _this_nums = _blog[_this_col].apply(_parse_rank).reset_index(drop=True)
-            _prev_nums = (
-                _blog[_prev_col].apply(_parse_rank).reset_index(drop=True)
-                if _prev_col
-                else pd.Series([None] * len(_blog), dtype=object)
-            )
-
-            # ── 순위 표시 포맷 (0 → "순위권 밖")
-            def _fmt_rank(v):
-                s = str(v).strip()
-                if s == "서치피드":
-                    return "서치피드"
-                n = _parse_rank(s)
-                if n is None or s == "":
-                    return "-"
-                if int(n) == 0:
-                    return "순위권 밖"
-                return str(int(n))
-
-            # ── 변화 아이콘 (올라감=숫자 작아짐=🔺, 내려감=숫자 커짐=🔻)
-            def _change_icon(this_v, prev_v):
-                if this_v is None or prev_v is None:
-                    return ""
-                if this_v == 0 or prev_v == 0:
-                    return ""
-                diff = this_v - prev_v
-                if diff < 0:
-                    return "🔺"
-                elif diff > 0:
-                    return "🔻"
-                return ""
-
-            _icons = [
-                _change_icon(_this_nums.iloc[i], _prev_nums.iloc[i])
-                for i in range(len(_blog))
-            ]
-
-            # ── 표시용 df 구성
-            _disp_blog = pd.DataFrame()
-            _disp_blog["키워드"] = [
-                f"{icon} {kw}".strip() if icon else kw
-                for icon, kw in zip(_icons, _blog["keyword"])
-            ]
-            if "계절" in _blog.columns:
-                _disp_blog["계절"] = _blog["계절"].values
-            if "품목" in _blog.columns:
-                _disp_blog["품목"] = _blog["품목"].values
-
-            _disp_blog[f"이번주 ({_this_col})"] = _blog[_this_col].apply(_fmt_rank).values
-            if _prev_col:
-                _disp_blog[f"지난주 ({_prev_col})"] = _blog[_prev_col].apply(_fmt_rank).values
-
-            # ── 이번주 기준 오름차순 정렬 (1→2→3... 순위권밖·서치피드 맨 아래)
-            _sort_key = _this_nums.apply(lambda v: 9999 if (v is None or v == 0) else v)
-            _disp_blog = _disp_blog.iloc[_sort_key.argsort().values].reset_index(drop=True)
-
-            st.metric("키워드 수", len(_disp_blog))
-            st.dataframe(_disp_blog, use_container_width=True, hide_index=True, height=520)
-
-            # ── 전체 이력 보기
-            if len(_b_date_cols) >= 2:
-                st.markdown("---")
-                st.subheader("📅 전체 이력")
-                _b_sel_cols = _period_filter(_b_date_cols, "blog_hist")
-                _hist_blog = _blog[
-                    ["keyword"] + [c for c in ("계절", "품목") if c in _blog.columns] + _b_sel_cols
-                ].copy()
-                for _bc in _b_sel_cols:
-                    _hist_blog[_bc] = _hist_blog[_bc].apply(_fmt_rank)
-                st.dataframe(_hist_blog, use_container_width=True, hide_index=True, height=400)
+    # ── 카페 순위 테이블
+    st.subheader("☕ 카페 순위")
+    _render_blog_cafe_table(load_rank_cafe(), "cafe")
 
 
 # ── 데이터 관리 ──
