@@ -887,7 +887,7 @@ def _render_rank_tab(
                 except Exception as _save_err:
                     st.error(f"저장 실패: {_save_err}")
             if _last_saved:
-                st.caption(f"마지막 저장: {_last_saved}")
+                st.markdown(f"<span style='color:#475569;font-size:0.82rem;font-weight:600;'>🕐 마지막 저장: {_last_saved}</span>", unsafe_allow_html=True)
 
     # ══ 섹션 2: 테이블 (단일 주차) ══
     elif _parsed_summary is not None:
@@ -970,7 +970,7 @@ def _render_rank_tab(
             except Exception as _save_err:
                 st.error(f"저장 실패: {_save_err}")
         if _last_saved:
-            st.caption(f"마지막 저장: {_last_saved}")
+            st.markdown(f"<span style='color:#475569;font-size:0.82rem;font-weight:600;'>🕐 마지막 저장: {_last_saved}</span>", unsafe_allow_html=True)
 
     else:
         _hist = load_fn()
