@@ -791,11 +791,18 @@ def _render_rank_tab(
 
                     merged = merged.sort_values("이번주", ascending=False, na_position="last").reset_index(drop=True)
 
-                    # 저장용: 이번주 데이터 (week_dfs는 이미 summarize_by_keyword 적용됨)
+                    # 저장용: 이번주 데이터 (표시용 — 비어있는지 체크에 사용)
                     save_df = week_dfs[this_label][week_dfs[this_label]["ad_type"] == expected_type].copy()
                     save_summary = _merge_meta(save_df) if not save_df.empty else pd.DataFrame()
 
-                    _multi_week_data = (merged, this_label, prev_label, save_summary)
+                    # 저장용: 모든 주차 데이터
+                    all_save_data = {}
+                    for _lbl in valid_labels:
+                        _sdf = week_dfs[_lbl][week_dfs[_lbl]["ad_type"] == expected_type].copy()
+                        if not _sdf.empty:
+                            all_save_data[_lbl] = _merge_meta(_sdf)
+
+                    _multi_week_data = (merged, this_label, prev_label, save_summary, all_save_data, valid_labels)
                     _date_label = this_label
             except Exception as _parse_err:
                 st.error(f"파싱 실패: {_parse_err}")
@@ -815,7 +822,7 @@ def _render_rank_tab(
 
     # ══ 섹션 2: 테이블 (다중 주차) ══
     if _multi_week_data is not None:
-        merged, this_label, prev_label, save_summary = _multi_week_data
+        merged, this_label, prev_label, save_summary, all_save_data, valid_labels = _multi_week_data
         _disp = _multiselect_filter(merged, f"{uploader_key}_up")
 
         # 컬럼 순서: 계절, 품목, 키워드, 지난주, 이번주
@@ -876,13 +883,15 @@ def _render_rank_tab(
         # ══ 섹션 3: 저장 버튼 ══
         if not save_summary.empty:
             _last_saved = load_setting(f"last_saved_{uploader_key}", "")
-            if st.button("📤 Google Sheets에 저장", key=f"save_{uploader_key}"):
+            if st.button(f"📤 Google Sheets에 저장 (전체 {len(all_save_data)}주차)", key=f"save_{uploader_key}"):
                 try:
-                    append_rank_history(save_summary, this_label, sheet_name)
+                    for _lbl in valid_labels:
+                        if _lbl in all_save_data and not all_save_data[_lbl].empty:
+                            append_rank_history(all_save_data[_lbl], _lbl, sheet_name)
                     _now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
                     save_setting(f"last_saved_{uploader_key}", _now_str)
                     st.cache_data.clear()
-                    st.success(f"저장 완료! ({this_label})")
+                    st.success(f"저장 완료! (총 {len(all_save_data)}주차)")
                     st.rerun()
                 except Exception as _save_err:
                     st.error(f"저장 실패: {_save_err}")
