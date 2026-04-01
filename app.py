@@ -1560,8 +1560,8 @@ elif selected_menu == "📝 블로그 순위":
         if not _b_date_cols:
             st.warning("날짜 컬럼이 없습니다.")
         else:
-            # ── meta_df와 병합 (계절, 품목)
-            _blog = _merge_meta(blog_raw.copy())
+            # ── meta_df와 병합 (계절, 품목) — 인덱스 리셋으로 정렬 일관성 보장
+            _blog = _merge_meta(blog_raw.copy()).reset_index(drop=True)
 
             _this_col = _b_date_cols[-1]
             _prev_col = _b_date_cols[-2] if len(_b_date_cols) >= 2 else None
@@ -1578,9 +1578,13 @@ elif selected_menu == "📝 블로그 순위":
                 except ValueError:
                     return None
 
-            _this_nums = blog_raw[_this_col].apply(_parse_rank)
-            _prev_nums = (blog_raw[_prev_col].apply(_parse_rank)
-                          if _prev_col else pd.Series([None] * len(blog_raw), dtype=object))
+            # _blog 기준으로 통일 (merge 후 행 수·순서가 달라질 수 있으므로)
+            _this_nums = _blog[_this_col].apply(_parse_rank).reset_index(drop=True)
+            _prev_nums = (
+                _blog[_prev_col].apply(_parse_rank).reset_index(drop=True)
+                if _prev_col
+                else pd.Series([None] * len(_blog), dtype=object)
+            )
 
             # ── 순위 표시 포맷 (0 → "순위권 밖")
             def _fmt_rank(v):
@@ -1623,13 +1627,12 @@ elif selected_menu == "📝 블로그 순위":
             if "품목" in _blog.columns:
                 _disp_blog["품목"] = _blog["품목"].values
 
-            _disp_blog[f"이번주 ({_this_col})"] = blog_raw[_this_col].apply(_fmt_rank)
+            _disp_blog[f"이번주 ({_this_col})"] = _blog[_this_col].apply(_fmt_rank).values
             if _prev_col:
-                _disp_blog[f"지난주 ({_prev_col})"] = blog_raw[_prev_col].apply(_fmt_rank)
+                _disp_blog[f"지난주 ({_prev_col})"] = _blog[_prev_col].apply(_fmt_rank).values
 
             # ── 이번주 기준 오름차순 정렬 (1→2→3... 순위권밖·서치피드 맨 아래)
-            _sort_key = _this_nums.copy()
-            _sort_key = _sort_key.apply(lambda v: 9999 if (v is None or v == 0) else v)
+            _sort_key = _this_nums.apply(lambda v: 9999 if (v is None or v == 0) else v)
             _disp_blog = _disp_blog.iloc[_sort_key.argsort().values].reset_index(drop=True)
 
             st.metric("키워드 수", len(_disp_blog))
@@ -1644,7 +1647,7 @@ elif selected_menu == "📝 블로그 순위":
                     ["keyword"] + [c for c in ("계절", "품목") if c in _blog.columns] + _b_sel_cols
                 ].copy()
                 for _bc in _b_sel_cols:
-                    _hist_blog[_bc] = blog_raw[_bc].apply(_fmt_rank)
+                    _hist_blog[_bc] = _hist_blog[_bc].apply(_fmt_rank)
                 st.dataframe(_hist_blog, use_container_width=True, hide_index=True, height=400)
 
 
