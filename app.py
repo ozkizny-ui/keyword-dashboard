@@ -51,7 +51,7 @@ html, body, [class*="css"], .stMarkdown, .stDataFrame {
 [data-testid="stAppViewContainer"] > .main { background: #f5f7fa; }
 [data-testid="stMain"] { background: #f5f7fa; }
 .block-container {
-    padding-top: 1rem !important;
+    padding-top: 3rem !important;
     padding-bottom: 2rem !important;
     max-width: 100% !important;
 }
