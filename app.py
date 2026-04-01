@@ -1630,6 +1630,40 @@ elif selected_menu == "🔗 파워링크 순위":
 elif selected_menu == "📝 블로그/카페 순위":
     st.subheader("📝 블로그/카페 순위")
 
+    # ── 인라인 필터 (3열) — meta_df 기반 키워드 필터링
+    _bc_f1, _bc_f2, _bc_f3 = st.columns(3)
+    _bc_s_opts = sorted(meta_df["계절"].dropna().unique().tolist()) if "계절" in meta_df.columns else []
+    _bc_c_opts = sorted(meta_df["카테고리"].dropna().unique().tolist()) if "카테고리" in meta_df.columns else []
+    _bc_g_opts = sorted(meta_df["성별/나이"].dropna().unique().tolist()) if "성별/나이" in meta_df.columns else []
+    with _bc_f1:
+        _bc_sel_seasons = st.multiselect("계절", _bc_s_opts, placeholder="전체", key="bc_seasons")
+    with _bc_f2:
+        _bc_sel_cats = st.multiselect("카테고리", _bc_c_opts, placeholder="전체", key="bc_cats")
+    with _bc_f3:
+        _bc_sel_genders = st.multiselect("성별/나이", _bc_g_opts, placeholder="전체", key="bc_genders")
+
+    # 필터 적용: 선택 시 meta_df 기준 교집합, 미선택 시 keywords.xlsx 전체
+    def _bc_filter_keywords() -> list:
+        from fetch_weekly_data import load_keywords as _lkw
+        if not _bc_sel_seasons and not _bc_sel_cats and not _bc_sel_genders:
+            return _lkw()
+        if meta_df.empty or "keyword" not in meta_df.columns:
+            return _lkw()
+        _mask = pd.Series(True, index=meta_df.index)
+        if _bc_sel_seasons:
+            _mask &= meta_df["계절"].apply(
+                lambda x: any(s in str(x) for s in _bc_sel_seasons) if pd.notna(x) else False
+            )
+        if _bc_sel_cats and "카테고리" in meta_df.columns:
+            _mask &= meta_df["카테고리"].isin(_bc_sel_cats)
+        if _bc_sel_genders and "성별/나이" in meta_df.columns:
+            _mask &= meta_df["성별/나이"].isin(_bc_sel_genders)
+        return meta_df[_mask]["keyword"].dropna().astype(str).tolist()
+
+    _bc_kws_preview = _bc_filter_keywords()
+    st.caption(f"조회 대상 키워드: **{len(_bc_kws_preview)}개**" +
+               (" (전체)" if not _bc_sel_seasons and not _bc_sel_cats and not _bc_sel_genders else " (필터 적용)"))
+
     # ── API 응답 진단 (bloggerlink 확인용)
     with st.expander("🔧 API 응답 진단 (bloggerlink 확인)"):
         _diag_kw = st.text_input("테스트할 키워드", placeholder="예: 아동복", key="diag_kw")
@@ -1670,10 +1704,10 @@ elif selected_menu == "📝 블로그/카페 순위":
         if st.button("🔍 블로그 순위 자동 조회", key="fetch_blog", type="primary"):
             _blog_prog = st.empty()
             try:
-                from fetch_weekly_data import load_keywords as _load_kws, get_week_label as _get_wl
+                from fetch_weekly_data import get_week_label as _get_wl
                 from naver_api import fetch_blog_rank
                 _blog_prog.info("⏳ 키워드 로드 중...")
-                _kws = _load_kws()
+                _kws = _bc_filter_keywords()
                 _wl = _get_wl()
                 _blog_pbar = st.progress(0)
                 _blog_ptxt = st.empty()
@@ -1688,7 +1722,7 @@ elif selected_menu == "📝 블로그/카페 순위":
                         _wl, config.SHEET_NAME_RANK_BLOG,
                     )
                     st.cache_data.clear()
-                    _blog_prog.success(f"✅ 블로그 저장 완료! ({_wl}, {len(_kws)}개)")
+                    _blog_prog.success(f"✅ 블로그 저장 완료! ({_wl}, {len(_blog_result)}개 키워드)")
                 else:
                     _blog_prog.warning("결과 없음")
             except Exception as _e:
@@ -1700,10 +1734,10 @@ elif selected_menu == "📝 블로그/카페 순위":
         if st.button("🔍 카페 순위 자동 조회", key="fetch_cafe", type="primary"):
             _cafe_prog = st.empty()
             try:
-                from fetch_weekly_data import load_keywords as _load_kws2, get_week_label as _get_wl2
+                from fetch_weekly_data import get_week_label as _get_wl2
                 from naver_api import fetch_cafe_rank
                 _cafe_prog.info("⏳ 키워드 로드 중...")
-                _kws2 = _load_kws2()
+                _kws2 = _bc_filter_keywords()
                 _wl2 = _get_wl2()
                 _cafe_pbar = st.progress(0)
                 _cafe_ptxt = st.empty()
@@ -1718,7 +1752,7 @@ elif selected_menu == "📝 블로그/카페 순위":
                         _wl2, config.SHEET_NAME_RANK_CAFE,
                     )
                     st.cache_data.clear()
-                    _cafe_prog.success(f"✅ 카페 저장 완료! ({_wl2}, {len(_kws2)}개)")
+                    _cafe_prog.success(f"✅ 카페 저장 완료! ({_wl2}, {len(_cafe_result)}개 키워드)")
                 else:
                     _cafe_prog.warning("결과 없음")
             except Exception as _e:
