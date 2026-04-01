@@ -875,14 +875,19 @@ def _render_rank_tab(
 
         # ══ 섹션 3: 저장 버튼 ══
         if not save_summary.empty:
-            if st.button(f"📤 Google Sheets에 저장 ({this_label})", key=f"save_{uploader_key}"):
+            _last_saved = load_setting(f"last_saved_{uploader_key}", "")
+            if st.button("📤 Google Sheets에 저장", key=f"save_{uploader_key}"):
                 try:
                     append_rank_history(save_summary, this_label, sheet_name)
+                    _now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+                    save_setting(f"last_saved_{uploader_key}", _now_str)
                     st.cache_data.clear()
                     st.success(f"저장 완료! ({this_label})")
                     st.rerun()
                 except Exception as _save_err:
                     st.error(f"저장 실패: {_save_err}")
+            if _last_saved:
+                st.caption(f"마지막 저장: {_last_saved}")
 
     # ══ 섹션 2: 테이블 (단일 주차) ══
     elif _parsed_summary is not None:
@@ -953,14 +958,19 @@ def _render_rank_tab(
             )
 
         # ══ 섹션 3: 저장 버튼 ══
-        if st.button(f"📤 Google Sheets에 저장 ({_date_label})", key=f"save_{uploader_key}"):
+        _last_saved = load_setting(f"last_saved_{uploader_key}", "")
+        if st.button("📤 Google Sheets에 저장", key=f"save_{uploader_key}"):
             try:
                 append_rank_history(_parsed_summary, _date_label, sheet_name)
+                _now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+                save_setting(f"last_saved_{uploader_key}", _now_str)
                 st.cache_data.clear()
                 st.success(f"저장 완료! ({_date_label})")
                 st.rerun()
             except Exception as _save_err:
                 st.error(f"저장 실패: {_save_err}")
+        if _last_saved:
+            st.caption(f"마지막 저장: {_last_saved}")
 
     else:
         _hist = load_fn()
