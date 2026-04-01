@@ -1762,15 +1762,22 @@ elif selected_menu == "📝 블로그/카페 순위":
 
     st.markdown("---")
 
-    # ── 블로그 순위 테이블
+    # ── 블로그 순위 테이블 (필터 적용)
     st.subheader("📝 블로그 순위")
-    _render_blog_cafe_table(load_rank_blog(), "blog")
+    _blog_raw = load_rank_blog()
+    _is_filtered = bool(_bc_sel_seasons or _bc_sel_cats or _bc_sel_genders)
+    if _is_filtered and not _blog_raw.empty and _bc_kws_preview:
+        _blog_raw = _blog_raw[_blog_raw["keyword"].isin(_bc_kws_preview)].reset_index(drop=True)
+    _render_blog_cafe_table(_blog_raw, "blog")
 
     st.markdown("---")
 
-    # ── 카페 순위 테이블
+    # ── 카페 순위 테이블 (필터 적용)
     st.subheader("☕ 카페 순위")
-    _render_blog_cafe_table(load_rank_cafe(), "cafe")
+    _cafe_raw = load_rank_cafe()
+    if _is_filtered and not _cafe_raw.empty and _bc_kws_preview:
+        _cafe_raw = _cafe_raw[_cafe_raw["keyword"].isin(_bc_kws_preview)].reset_index(drop=True)
+    _render_blog_cafe_table(_cafe_raw, "cafe")
 
 
 # ── 데이터 관리 ──
