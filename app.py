@@ -1546,15 +1546,106 @@ elif selected_menu == "🔗 파워링크 순위":
 
 # ── 블로그 순위 ──
 elif selected_menu == "📝 블로그 순위":
-    _render_rank_tab(
-        upload_label="블로그 순위 CSV/엑셀 업로드",
-        uploader_key="blog_upload",
-        ad_type="blog",
-        expected_type="블로그",
-        sheet_name=config.SHEET_NAME_RANK_BLOG,
-        load_fn=load_rank_blog,
-        tab_label="블로그",
-    )
+    st.subheader("📝 블로그 순위")
+
+    blog_raw = load_rank_blog()
+
+    if blog_raw.empty:
+        st.info("블로그 순위 데이터가 없습니다. Google Sheets '블로그순위' 시트를 확인해주세요.")
+    else:
+        # ── 날짜 컬럼 파악
+        _b_meta_set = {"keyword", "계절", "품목"}
+        _b_date_cols = [c for c in blog_raw.columns if c not in _b_meta_set]
+
+        if not _b_date_cols:
+            st.warning("날짜 컬럼이 없습니다.")
+        else:
+            # ── meta_df와 병합 (계절, 품목)
+            _blog = _merge_meta(blog_raw.copy())
+
+            _this_col = _b_date_cols[-1]
+            _prev_col = _b_date_cols[-2] if len(_b_date_cols) >= 2 else None
+
+            st.caption(f"📅 이번주: {_this_col}" + (f"  |  지난주: {_prev_col}" if _prev_col else ""))
+
+            # ── 순위값 → float 변환 (서치피드·빈값은 None)
+            def _parse_rank(v):
+                s = str(v).strip()
+                if s in ("서치피드", ""):
+                    return None
+                try:
+                    return float(s)
+                except ValueError:
+                    return None
+
+            _this_nums = blog_raw[_this_col].apply(_parse_rank)
+            _prev_nums = (blog_raw[_prev_col].apply(_parse_rank)
+                          if _prev_col else pd.Series([None] * len(blog_raw), dtype=object))
+
+            # ── 순위 표시 포맷 (0 → "순위권 밖")
+            def _fmt_rank(v):
+                s = str(v).strip()
+                if s == "서치피드":
+                    return "서치피드"
+                n = _parse_rank(s)
+                if n is None or s == "":
+                    return "-"
+                if int(n) == 0:
+                    return "순위권 밖"
+                return str(int(n))
+
+            # ── 변화 아이콘 (올라감=숫자 작아짐=🔺, 내려감=숫자 커짐=🔻)
+            def _change_icon(this_v, prev_v):
+                if this_v is None or prev_v is None:
+                    return ""
+                if this_v == 0 or prev_v == 0:
+                    return ""
+                diff = this_v - prev_v
+                if diff < 0:
+                    return "🔺"
+                elif diff > 0:
+                    return "🔻"
+                return ""
+
+            _icons = [
+                _change_icon(_this_nums.iloc[i], _prev_nums.iloc[i])
+                for i in range(len(_blog))
+            ]
+
+            # ── 표시용 df 구성
+            _disp_blog = pd.DataFrame()
+            _disp_blog["키워드"] = [
+                f"{icon} {kw}".strip() if icon else kw
+                for icon, kw in zip(_icons, _blog["keyword"])
+            ]
+            if "계절" in _blog.columns:
+                _disp_blog["계절"] = _blog["계절"].values
+            if "품목" in _blog.columns:
+                _disp_blog["품목"] = _blog["품목"].values
+
+            _disp_blog[f"이번주 ({_this_col})"] = blog_raw[_this_col].apply(_fmt_rank)
+            if _prev_col:
+                _disp_blog[f"지난주 ({_prev_col})"] = blog_raw[_prev_col].apply(_fmt_rank)
+
+            # ── 이번주 기준 오름차순 정렬 (1→2→3... 순위권밖·서치피드 맨 아래)
+            _sort_key = _this_nums.copy()
+            _sort_key = _sort_key.apply(lambda v: 9999 if (v is None or v == 0) else v)
+            _disp_blog = _disp_blog.iloc[_sort_key.argsort().values].reset_index(drop=True)
+
+            st.metric("키워드 수", len(_disp_blog))
+            st.dataframe(_disp_blog, use_container_width=True, hide_index=True, height=520)
+
+            # ── 전체 이력 보기
+            if len(_b_date_cols) >= 2:
+                st.markdown("---")
+                st.subheader("📅 전체 이력")
+                _b_sel_cols = _period_filter(_b_date_cols, "blog_hist")
+                _hist_blog = _blog[
+                    ["keyword"] + [c for c in ("계절", "품목") if c in _blog.columns] + _b_sel_cols
+                ].copy()
+                for _bc in _b_sel_cols:
+                    _hist_blog[_bc] = blog_raw[_bc].apply(_fmt_rank)
+                st.dataframe(_hist_blog, use_container_width=True, hide_index=True, height=400)
 
 
 # ── 데이터 관리 ──
