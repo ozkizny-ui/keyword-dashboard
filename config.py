@@ -50,7 +50,7 @@ SHEET_NAME_RANK         = "광고순위"
 SHEET_NAME_RANK_SHOPPING  = "쇼핑검색순위"
 SHEET_NAME_RANK_POWERLINK = "파워링크순위"
 SHEET_NAME_RANK_BLOG      = "블로그순위"
-SHEET_NAME_RANK_CAFE      = "카페순위"
+SHEET_NAME_RANK_CAFE      = "카페순위"   # 카페 순위 이력 시트
 SHEET_NAME_SETTINGS       = "설정"
 
 # ──────────────────────────────────────────────
