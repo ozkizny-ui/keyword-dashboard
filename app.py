@@ -30,12 +30,16 @@ st.set_page_config(
     page_title="오즈키즈 키워드 대시보드",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&display=swap');
+
+/* ════════════════════════════════════════════
+   기본 (데스크톱)
+════════════════════════════════════════════ */
 
 /* ── 기본 폰트 ── */
 html, body, [class*="css"], .stMarkdown, .stDataFrame {
@@ -46,7 +50,11 @@ html, body, [class*="css"], .stMarkdown, .stDataFrame {
 [data-testid="stAppViewContainer"] { background: #f5f7fa; }
 [data-testid="stAppViewContainer"] > .main { background: #f5f7fa; }
 [data-testid="stMain"] { background: #f5f7fa; }
-.block-container { padding-top: 1.8rem !important; padding-bottom: 2rem !important; }
+.block-container {
+    padding-top: 1.8rem !important;
+    padding-bottom: 2rem !important;
+    max-width: 100% !important;
+}
 
 /* ── 사이드바 ── */
 [data-testid="stSidebar"] {
@@ -77,6 +85,7 @@ h3 { font-size: 0.95rem !important; font-weight: 600 !important; color: #334155 
     gap: 3px;
     border: 1px solid #e8ecf0;
     box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    flex-wrap: wrap;
 }
 [data-testid="stTabs"] [role="tab"] {
     border-radius: 10px !important;
@@ -123,6 +132,7 @@ h3 { font-size: 0.95rem !important; font-weight: 600 !important; color: #334155 
     border-radius: 10px !important; font-weight: 600 !important; font-size: 0.85rem !important;
     border: 1.5px solid #e2e8f0 !important; transition: all 0.16s ease !important;
     color: #475569 !important; background: #ffffff !important;
+    min-height: 44px !important;
 }
 .stButton > button:hover {
     border-color: #4361ee !important; color: #4361ee !important;
@@ -185,6 +195,7 @@ span[data-baseweb="tag"] {
 [data-testid="stTextInput"] input {
     border-radius: 10px !important; border-color: #e2e8f0 !important;
     font-size: 0.875rem !important;
+    min-height: 44px !important;
 }
 [data-testid="stTextInput"] input:focus {
     border-color: #4361ee !important;
@@ -194,6 +205,13 @@ span[data-baseweb="tag"] {
 /* ── 셀렉트박스 ── */
 [data-testid="stSelectbox"] > div > div {
     border-radius: 10px !important; border-color: #e2e8f0 !important;
+    min-height: 44px !important;
+}
+
+/* ── 멀티셀렉트 ── */
+[data-testid="stMultiSelect"] > div > div {
+    border-radius: 10px !important; border-color: #e2e8f0 !important;
+    min-height: 44px !important;
 }
 
 /* ── 커스텀 클래스 ── */
@@ -225,12 +243,13 @@ span[data-baseweb="tag"] {
 }
 [data-testid="stSidebar"] [data-testid="stRadio"] label {
     display: flex; align-items: center;
-    padding: 0.45rem 0.75rem;
+    padding: 0.6rem 0.75rem;
     border-radius: 8px;
-    font-size: 0.875rem;
+    font-size: 0.925rem;
     font-weight: 500;
     color: #475569;
     cursor: pointer;
+    min-height: 44px;
     transition: background 0.15s, color 0.15s;
 }
 [data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
@@ -243,12 +262,110 @@ span[data-baseweb="tag"] {
     color: #4361ee;
     font-weight: 700;
 }
-/* 라디오 원형 도트만 숨김 (항목 행 전체를 숨기지 않음) */
+/* 라디오 원형 도트만 숨김 */
 [data-testid="stSidebar"] [data-testid="stRadio"] [data-baseweb="radio"] > div:first-child {
     display: none !important;
 }
 [data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     display: none !important;
+}
+
+/* ════════════════════════════════════════════
+   모바일 반응형 (≤ 768px)
+════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+    /* 컨테이너 패딩 축소 */
+    .block-container {
+        padding-top: 0.75rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        padding-bottom: 4rem !important;
+    }
+
+    /* 헤딩 크기 */
+    h1 { font-size: 1.2rem !important; }
+    h2 { font-size: 1rem !important; }
+    h3 { font-size: 0.875rem !important; }
+
+    /* 메트릭 */
+    [data-testid="stMetric"] {
+        padding: 0.75rem 1rem !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.4rem !important;
+    }
+
+    /* 컬럼 → 세로 스택 */
+    [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+        gap: 0.5rem !important;
+    }
+    [data-testid="column"] {
+        flex: 1 1 100% !important;
+        width: 100% !important;
+        min-width: 100% !important;
+    }
+
+    /* 버튼 전체 너비 */
+    .stButton > button {
+        width: 100% !important;
+        font-size: 0.9rem !important;
+        min-height: 48px !important;
+    }
+
+    /* 탭 작게 */
+    [data-testid="stTabs"] [role="tab"] {
+        font-size: 0.75rem !important;
+        padding: 0.4rem 0.55rem !important;
+    }
+
+    /* 데이터프레임 가로 스크롤 */
+    [data-testid="stDataFrame"] {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    /* 인풋/셀렉트 터치 타깃 */
+    [data-testid="stTextInput"] input,
+    [data-testid="stSelectbox"] > div > div,
+    [data-testid="stMultiSelect"] > div > div {
+        font-size: 1rem !important;
+        min-height: 48px !important;
+    }
+
+    /* 사이드바 전체 너비 (열렸을 때) */
+    [data-testid="stSidebar"] {
+        width: 85vw !important;
+        min-width: 260px !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadio"] label {
+        font-size: 1rem !important;
+        padding: 0.75rem 1rem !important;
+        min-height: 48px !important;
+    }
+
+    /* 구분선 여백 축소 */
+    hr { margin: 0.75rem 0; }
+
+    /* 캡션 */
+    [data-testid="stCaptionContainer"] p {
+        font-size: 0.72rem !important;
+    }
+}
+
+/* ≤ 480px: 소형 폰 */
+@media (max-width: 480px) {
+    .block-container {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+    h1 { font-size: 1.05rem !important; }
+    [data-testid="stMetricValue"] { font-size: 1.25rem !important; }
+    [data-testid="stTabs"] [role="tab"] {
+        font-size: 0.7rem !important;
+        padding: 0.35rem 0.45rem !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -441,15 +558,13 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
 # ══════════════════════════════════════════════
 
 st.markdown(
-    f"""<div style="display:flex;align-items:center;justify-content:space-between;
-                   padding:0.25rem 0 1rem 0;">
-        <div>
-            <div style="font-size:1.55rem;font-weight:800;color:#0f172a;letter-spacing:-0.03em;
-                        line-height:1.2;">📊 오즈키즈 키워드 대시보드</div>
-            <div style="font-size:0.78rem;color:#94a3b8;margin-top:0.25rem;font-weight:400;">
-                브랜드: <b style="color:#64748b;">{config.BRAND_STORE_NAME}</b>
-                &nbsp;·&nbsp; 업데이트: {datetime.now(KST).strftime('%Y.%m.%d %H:%M')}
-            </div>
+    f"""<div style="padding:0.25rem 0 0.75rem 0;">
+        <div style="font-size:clamp(1.1rem,4vw,1.55rem);font-weight:800;color:#0f172a;
+                    letter-spacing:-0.03em;line-height:1.2;">📊 오즈키즈 키워드 대시보드</div>
+        <div style="font-size:clamp(0.7rem,2.5vw,0.78rem);color:#94a3b8;
+                    margin-top:0.2rem;font-weight:400;">
+            브랜드: <b style="color:#64748b;">{config.BRAND_STORE_NAME}</b>
+            &nbsp;·&nbsp; 업데이트: {datetime.now(KST).strftime('%Y.%m.%d %H:%M')}
         </div>
     </div>""",
     unsafe_allow_html=True,
@@ -1044,7 +1159,7 @@ if selected_menu == "📈 주간 검색수":
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
                         height=280,
                     )
-                    st.plotly_chart(fig_cmp, use_container_width=True)
+                    st.plotly_chart(fig_cmp, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
                 else:
                     st.info("조건에 맞는 키워드 없음\n(이번주 검색수 1,000 이상 & 변화율 상위 필요)")
             else:
@@ -1078,7 +1193,7 @@ if selected_menu == "📈 주간 검색수":
                         xaxis_title=None,
                         height=280,
                     )
-                    st.plotly_chart(fig_bar, use_container_width=True)
+                    st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
                 else:
                     st.info("데이터 없음")
             else:
@@ -1110,7 +1225,7 @@ if selected_menu == "📈 주간 검색수":
                         yaxis_title=None,
                         height=280,
                     )
-                    st.plotly_chart(fig_line, use_container_width=True)
+                    st.plotly_chart(fig_line, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
                 else:
                     st.info(f"{next_season} 키워드 없음")
             else:
@@ -1201,7 +1316,7 @@ if selected_menu == "📈 주간 검색수":
                 height=450, legend=dict(orientation="h", y=-0.2),
                 hovermode="x unified",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
 
         # ── 전체 데이터 테이블 (선택 기간)
         st.subheader("📋 전체 데이터")
@@ -1361,7 +1476,7 @@ elif selected_menu == "📊 연간 트렌드":
                             font=dict(size=11, color="gray"),
                         )],
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
 
                 # 데이터랩 원본 비율 (ratio 컬럼 있을 때만)
                 if "ratio" in trend_df.columns:
@@ -1377,7 +1492,7 @@ elif selected_menu == "📊 연간 트렌드":
                                 template="plotly_white",
                             )
                             fig2.update_layout(height=350)
-                            st.plotly_chart(fig2, use_container_width=True)
+                            st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
 
 
 # ── 쇼핑검색 순위 ──
