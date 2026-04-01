@@ -254,7 +254,7 @@ def _search_api_headers() -> dict:
 def fetch_blog_rank(keywords: list, progress_cb=None) -> pd.DataFrame:
     """
     키워드별 네이버 블로그 검색 순위 조회.
-    오즈키즈 블로그(bloggerlink에 'ozkiz' 포함)가 몇 번째인지 반환.
+    포스트 title 또는 description에 '오즈키즈'가 포함된 첫 번째 결과의 순위 반환.
     없으면 0. 반환 컬럼: keyword, rank
     """
     if not config.NAVER_CLIENT_ID or not config.NAVER_CLIENT_SECRET:
@@ -277,7 +277,9 @@ def fetch_blog_rank(keywords: list, progress_cb=None) -> pd.DataFrame:
             )
             if resp.status_code == 200:
                 for i, item in enumerate(resp.json().get("items", []), start=1):
-                    if "ozkiz" in item.get("bloggerlink", "").lower():
+                    title = item.get("title", "")
+                    desc  = item.get("description", "")
+                    if "오즈키즈" in title or "오즈키즈" in desc:
                         rank = i
                         break
         except Exception:
