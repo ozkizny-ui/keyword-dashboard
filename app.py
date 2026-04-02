@@ -1176,9 +1176,9 @@ if selected_menu == "📈 주간 검색수":
         # ── 상단 차트 3개 ────────────────────────────────
         ch1, ch2, ch3 = st.columns(3)
 
-        # ── 차트 1: 급상승 TOP 10 올해 vs 작년 비교
+        # ── 차트 1: 급상승 TOP 100 올해 vs 작년 비교
         with ch1:
-            st.markdown("**📈 급상승 TOP 10 — 올해 vs 작년**")
+            st.markdown("**📈 급상승 TOP 100 — 올해 vs 작년**")
             if week_cols and len(week_cols) >= 2 and not ranked.empty:
                 _this_week_col = week_cols[-1]
                 _vol_map = filtered.set_index("keyword")[_this_week_col].to_dict()
@@ -1187,7 +1187,7 @@ if selected_menu == "📈 주간 검색수":
                 _ranked_filtered = ranked[
                     ranked["keyword"].map(lambda k: _vol_map.get(k, 0)) >= 1000
                 ]
-                _top10_up = _ranked_filtered.nlargest(10, "변화율")[["keyword", "이번주", "변화율"]].copy()
+                _top10_up = _ranked_filtered.nlargest(100, "변화율")[["keyword", "이번주", "변화율"]].copy()
 
                 if not _top10_up.empty:
                     # ── 작년 같은 주차 컬럼을 weekly_df에서 탐색
@@ -1345,7 +1345,7 @@ if selected_menu == "📈 주간 검색수":
             if "변화율" in period_changes.columns else pd.DataFrame()
         )
 
-        # ── 급상승/급하락 TOP 10 (선택 기간 마지막 2주 기준)
+        # ── 급상승/급하락 TOP 100 (선택 기간 마지막 2주 기준)
         if not period_ranked.empty:
             _top_fmt = {
                 "이번주": "{:,.0f}", "지난주": "{:,.0f}", "변화량": "{:,.0f}",
@@ -1353,12 +1353,12 @@ if selected_menu == "📈 주간 검색수":
             }
             col_left, col_right = st.columns(2)
             with col_left:
-                st.subheader("🔥 급상승 TOP 10")
-                top_up = period_ranked.nlargest(10, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
+                st.subheader("🔥 급상승 TOP 100")
+                top_up = period_ranked.nlargest(100, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
                 st.dataframe(top_up.style.format(_top_fmt, na_rep="-"), use_container_width=True, hide_index=True)
             with col_right:
-                st.subheader("❄️ 급하락 TOP 10")
-                top_down = period_ranked.nsmallest(10, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
+                st.subheader("❄️ 급하락 TOP 100")
+                top_down = period_ranked.nsmallest(100, "변화량")[["keyword", "이번주", "지난주", "변화량", "변화율"]]
                 st.dataframe(top_down.style.format(_top_fmt, na_rep="-"), use_container_width=True, hide_index=True)
 
         # ── 키워드별 검색수 순위
