@@ -1791,10 +1791,14 @@ elif selected_menu == "🆕 신규키워드 개발":
 
             _nk_naver_df = pd.DataFrame()
 
+            st.caption(f"🔎 hint keywords: `{_nk_hint_keywords}`")
+
             with st.spinner("네이버 검색광고 API에서 연관 키워드 수집 중..."):
                 try:
                     from naver_api import fetch_search_volume as _nk_fetch
                     _nk_raw = _nk_fetch(_nk_hint_keywords, filter_exact=False)
+                    st.write(f"**API 응답 행 수:** {len(_nk_raw)}")
+                    st.write(_nk_raw)
                     if not _nk_raw.empty:
                         _nk_naver_df = (
                             _nk_raw[["keyword", "totalSearchCount"]]
@@ -1804,7 +1808,9 @@ elif selected_menu == "🆕 신규키워드 개발":
                             .reset_index(drop=True)
                         )
                 except Exception as _nk_e:
+                    import traceback as _nk_tb
                     st.error(f"네이버 API 오류: {_nk_e}")
+                    st.code(_nk_tb.format_exc())
 
             st.session_state["_nk_result"] = {
                 "product": _nk_product.strip(),
