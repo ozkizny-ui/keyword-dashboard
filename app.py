@@ -1793,8 +1793,8 @@ elif selected_menu == "🆕 신규키워드 개발":
 
             with st.spinner("네이버 검색광고 API에서 연관 키워드 수집 중..."):
                 try:
-                    from naver_api import fetch_related_keywords as _nk_fetch
-                    _nk_raw = _nk_fetch(_nk_hint_keywords)
+                    from naver_api import fetch_search_volume as _nk_fetch
+                    _nk_raw = _nk_fetch(_nk_hint_keywords, filter_exact=False)
                     if not _nk_raw.empty:
                         _nk_naver_df = (
                             _nk_raw[["keyword", "totalSearchCount"]]
