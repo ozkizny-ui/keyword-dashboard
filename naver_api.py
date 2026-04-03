@@ -95,6 +95,57 @@ def fetch_search_volume(keywords: list[str]) -> pd.DataFrame:
     return df[["keyword", "monthlyPcQcCnt", "monthlyMobileQcCnt", "totalSearchCount"]].reset_index(drop=True)
 
 
+def fetch_related_keywords(hint_keywords: list[str]) -> pd.DataFrame:
+    """
+    hintKeywords 기반으로 네이버 연관 키워드와 월간 검색수를 조회합니다.
+    fetch_search_volume과 동일한 API 호출 방식을 사용하며,
+    응답에서 모든 relKeyword를 필터링 없이 반환합니다.
+    반환 컬럼: keyword, monthlyPcQcCnt, monthlyMobileQcCnt, totalSearchCount
+    """
+    uri = "/keywordstool"
+    url = config.NAVER_AD_BASE_URL + uri
+    all_results = []
+    total_batches = (len(hint_keywords) + config.AD_API_BATCH_SIZE - 1) // config.AD_API_BATCH_SIZE
+
+    for i in range(0, len(hint_keywords), config.AD_API_BATCH_SIZE):
+        batch = hint_keywords[i : i + config.AD_API_BATCH_SIZE]
+        batch_num = i // config.AD_API_BATCH_SIZE + 1
+        params = {
+            "hintKeywords": ",".join(batch),
+            "showDetail": "1",
+        }
+
+        for attempt in range(3):
+            headers = _ad_api_headers("GET", uri)  # 매 시도마다 새 타임스탬프
+            try:
+                resp = requests.get(url, headers=headers, params=params, timeout=30)
+                resp.raise_for_status()
+                data = resp.json().get("keywordList", [])
+                all_results.extend(data)
+                if batch_num % 10 == 0 or batch_num == total_batches:
+                    print(f"  → 진행: {batch_num}/{total_batches} 배치 완료")
+                break
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(1)
+                else:
+                    raise  # 최종 실패 시 호출 측에서 처리
+        time.sleep(0.5)
+
+    if not all_results:
+        return pd.DataFrame(columns=["keyword", "monthlyPcQcCnt", "monthlyMobileQcCnt", "totalSearchCount"])
+
+    df = pd.DataFrame(all_results)
+    for col in ["monthlyPcQcCnt", "monthlyMobileQcCnt"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col].replace("< 10", 5).infer_objects(copy=False), errors="coerce").fillna(0).astype(int)
+
+    df["totalSearchCount"] = df["monthlyPcQcCnt"] + df["monthlyMobileQcCnt"]
+    df = df.rename(columns={"relKeyword": "keyword"})
+
+    return df[["keyword", "monthlyPcQcCnt", "monthlyMobileQcCnt", "totalSearchCount"]].reset_index(drop=True)
+
+
 def fetch_shopping_category(keywords: list[str]) -> pd.DataFrame:
     """
     네이버 쇼핑 검색 API로 키워드별 노출 카테고리를 조회합니다.
