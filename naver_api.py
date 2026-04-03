@@ -42,16 +42,18 @@ def _ad_api_headers(method: str, uri: str) -> dict:
     }
 
 
-def fetch_search_volume(keywords: list[str], filter_exact: bool = True) -> pd.DataFrame:
+def fetch_search_volume(keywords: list[str], filter_exact: bool = True, progress_cb=None) -> pd.DataFrame:
     """
     키워드 목록의 월간 검색수를 조회합니다.
     filter_exact=True (기본값): 입력 키워드와 일치하는 결과만 반환
     filter_exact=False: API가 반환하는 모든 연관 키워드를 필터링 없이 반환
+    progress_cb: 진행상황 콜백 함수 (batch_num, total_batches, status_text) → Streamlit 등에서 활용
     반환 컬럼: keyword, monthlyPcQcCnt, monthlyMobileQcCnt, totalSearchCount
     """
     uri = "/keywordstool"
     url = config.NAVER_AD_BASE_URL + uri
     all_results = []
+    errors = []
     total_batches = (len(keywords) + config.AD_API_BATCH_SIZE - 1) // config.AD_API_BATCH_SIZE
 
     for i in range(0, len(keywords), config.AD_API_BATCH_SIZE):
@@ -67,18 +69,34 @@ def fetch_search_volume(keywords: list[str], filter_exact: bool = True) -> pd.Da
             headers = _ad_api_headers("GET", uri)  # 매 시도마다 새 타임스탬프
             try:
                 resp = requests.get(url, headers=headers, params=params, timeout=30)
-                resp.raise_for_status()
+                if resp.status_code != 200:
+                    err_msg = f"batch {batch_num}: HTTP {resp.status_code} - {resp.text[:200]}"
+                    if attempt < 2:
+                        time.sleep(1)
+                        continue
+                    else:
+                        errors.append(err_msg)
+                        print(f"[검색광고 API 오류] {err_msg}")
+                        break
                 data = resp.json().get("keywordList", [])
                 all_results.extend(data)
-                if batch_num % 10 == 0 or batch_num == total_batches:
+                if progress_cb:
+                    progress_cb(batch_num, total_batches, f"배치 {batch_num}/{total_batches} 완료")
+                elif batch_num % 10 == 0 or batch_num == total_batches:
                     print(f"  → 진행: {batch_num}/{total_batches} 배치 완료")
                 break
             except Exception as e:
                 if attempt < 2:
                     time.sleep(1)
                 else:
-                    print(f"[검색광고 API 오류] batch {batch_num} ({', '.join(batch)}): {e}")
+                    err_msg = f"batch {batch_num} ({', '.join(batch)}): {e}"
+                    errors.append(err_msg)
+                    print(f"[검색광고 API 오류] {err_msg}")
         time.sleep(0.5)
+
+    # 에러가 있으면 경고 로그 (호출자가 확인 가능)
+    if errors:
+        print(f"[검색광고 API] {len(errors)}개 배치 실패: {errors[:3]}")  # 처음 3개만 출력
 
     if not all_results:
         return pd.DataFrame(columns=["keyword", "monthlyPcQcCnt", "monthlyMobileQcCnt", "totalSearchCount"])

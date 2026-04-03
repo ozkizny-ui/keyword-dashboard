@@ -1791,41 +1791,40 @@ elif selected_menu == "🆕 신규키워드 개발":
 
             _nk_naver_df = pd.DataFrame()
 
-            st.caption(f"🔎 hint keywords: `{_nk_hint_keywords}`")
-
             with st.spinner("네이버 검색광고 API에서 연관 키워드 수집 중..."):
                 try:
-                    import requests as _dbg_req
+                    import requests as _nk_req
                     import traceback as _nk_tb
-                    from naver_api import _ad_api_headers as _dbg_hdrs
+                    from naver_api import _ad_api_headers, fetch_search_volume as _nk_fetch
 
-                    _dbg_uri = "/keywordstool"
-                    _dbg_url = config.NAVER_AD_BASE_URL + _dbg_uri
-                    _dbg_params = {
+                    # ── API 연결 진단 ──
+                    _nk_uri = "/keywordstool"
+                    _nk_url = config.NAVER_AD_BASE_URL + _nk_uri
+                    _nk_params = {
                         "hintKeywords": ",".join(_nk_hint_keywords[:config.AD_API_BATCH_SIZE]),
                         "showDetail": "1",
                     }
-                    _dbg_resp = _dbg_req.get(
-                        _dbg_url,
-                        headers=_dbg_hdrs("GET", _dbg_uri),
-                        params=_dbg_params,
+                    _nk_resp = _nk_req.get(
+                        _nk_url,
+                        headers=_ad_api_headers("GET", _nk_uri),
+                        params=_nk_params,
                         timeout=30,
                     )
-                    st.write(f"**HTTP 상태코드:** {_dbg_resp.status_code}")
-                    st.json(_dbg_resp.json())
 
-                    from naver_api import fetch_search_volume as _nk_fetch
-                    _nk_raw = _nk_fetch(_nk_hint_keywords, filter_exact=False)
-                    st.write(f"**fetch_search_volume 응답 행 수:** {len(_nk_raw)}")
-                    st.write(_nk_raw)
-                    if not _nk_raw.empty:
-                        _nk_naver_df = (
-                            _nk_raw[["keyword", "totalSearchCount"]]
-                            .rename(columns={"totalSearchCount": "월간검색수"})
-                            .groupby("keyword", as_index=False)["월간검색수"].max()
-                            .sort_values("월간검색수", ascending=False)
-                            .reset_index(drop=True)
-                        )
+                    if _nk_resp.status_code != 200:
+                        st.error(f"❌ API 오류 (HTTP {_nk_resp.status_code}): {_nk_resp.text[:300]}")
+                    else:
+                        _nk_raw = _nk_fetch(_nk_hint_keywords, filter_exact=False)
+                        if not _nk_raw.empty:
+                            _nk_naver_df = (
+                                _nk_raw[["keyword", "totalSearchCount"]]
+                                .rename(columns={"totalSearchCount": "월간검색수"})
+                                .groupby("keyword", as_index=False)["월간검색수"].max()
+                                .sort_values("월간검색수", ascending=False)
+                                .reset_index(drop=True)
+                            )
+                        else:
+                            st.warning("API 응답은 정상이지만 결과가 없습니다. 다른 키워드로 시도해보세요.")
                 except Exception as _nk_e:
                     st.error(f"네이버 API 오류: {_nk_e}")
                     st.code(_nk_tb.format_exc())
@@ -1908,6 +1907,27 @@ elif selected_menu == "⚙️ 데이터 관리":
                 progress.info("⏳ 1/3 키워드 파일 로드 중...")
                 keywords = load_keywords()
                 progress.info(f"⏳ 1/3 키워드 {len(keywords)}개 로드 완료")
+
+                # ── 사전 진단: 첫 배치로 API 연결 테스트 ──
+                progress.info("⏳ 2/3 네이버 검색광고 API 연결 테스트 중...")
+                import requests as _diag_req
+                from naver_api import _ad_api_headers
+                _diag_uri = "/keywordstool"
+                _diag_url = config.NAVER_AD_BASE_URL + _diag_uri
+                _diag_params = {"hintKeywords": keywords[0], "showDetail": "1"}
+                try:
+                    _diag_resp = _diag_req.get(
+                        _diag_url,
+                        headers=_ad_api_headers("GET", _diag_uri),
+                        params=_diag_params,
+                        timeout=15,
+                    )
+                    if _diag_resp.status_code != 200:
+                        st.error(f"❌ API 연결 실패 (HTTP {_diag_resp.status_code}): {_diag_resp.text[:300]}")
+                        st.stop()
+                except Exception as _diag_e:
+                    st.error(f"❌ API 서버 연결 불가: {_diag_e}")
+                    st.stop()
 
                 # ── 2단계: 검색수 조회 ──
                 progress.info(f"⏳ 2/3 네이버 검색광고 API 조회 중... ({len(keywords)}개 키워드)")
