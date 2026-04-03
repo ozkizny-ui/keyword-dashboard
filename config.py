@@ -52,6 +52,7 @@ SHEET_NAME_RANK_POWERLINK = "파워링크순위"
 SHEET_NAME_RANK_BLOG      = "블로그순위"
 SHEET_NAME_RANK_CAFE      = "카페순위"   # 카페 순위 이력 시트
 SHEET_NAME_SETTINGS       = "설정"
+SHEET_NAME_NEW_KEYWORDS   = "신규키워드"
 
 # ──────────────────────────────────────────────
 # 프로젝트 설정

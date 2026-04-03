@@ -344,6 +344,48 @@ def read_setting(key: str, fallback: str = "") -> str:
     return fallback
 
 
+def save_new_keywords(rows: list[dict]):
+    """
+    신규키워드 개발 결과를 Google Sheets에 추가 저장.
+    rows: [{"날짜","제품명","카테고리","타겟","키워드","출처","월간검색수"}, ...]
+    """
+    client = _get_client()
+    spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
+    ws = _get_or_create_sheet(spreadsheet, config.SHEET_NAME_NEW_KEYWORDS)
+
+    existing = ws.get_all_values()
+    header = ["날짜", "제품명", "카테고리", "타겟", "키워드", "출처", "월간검색수"]
+
+    if not existing:
+        ws.update(range_name="A1", values=[header])
+
+    new_rows = [
+        [
+            r.get("날짜", ""), r.get("제품명", ""), r.get("카테고리", ""),
+            r.get("타겟", ""), r.get("키워드", ""), r.get("출처", ""),
+            r.get("월간검색수", ""),
+        ]
+        for r in rows
+    ]
+    ws.append_rows(new_rows)
+
+
+def read_new_keywords() -> pd.DataFrame:
+    """신규키워드 시트 전체 읽기"""
+    client = _get_client()
+    spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
+    try:
+        ws = spreadsheet.worksheet(config.SHEET_NAME_NEW_KEYWORDS)
+    except gspread.WorksheetNotFound:
+        return pd.DataFrame()
+
+    data = ws.get_all_values()
+    if len(data) < 2:
+        return pd.DataFrame()
+
+    return pd.DataFrame(data[1:], columns=data[0])
+
+
 def read_rank_data() -> pd.DataFrame:
     """Google Sheets에서 광고 순위 데이터를 읽어옵니다."""
     client = _get_client()
