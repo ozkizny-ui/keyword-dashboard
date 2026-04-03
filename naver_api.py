@@ -23,7 +23,7 @@ def _ad_api_signature(timestamp: str, method: str, uri: str) -> str:
     """검색광고 API 인증 시그니처 생성"""
     message = f"{timestamp}.{method}.{uri}"
     sign = hmac.new(
-        config.NAVER_AD_SECRET_KEY.strip().encode("utf-8"),
+        config.NAVER_AD_SECRET_KEY.encode("utf-8"),
         message.encode("utf-8"),
         hashlib.sha256,
     ).digest()
