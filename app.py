@@ -1828,6 +1828,19 @@ elif selected_menu == "🆕 신규키워드 개발":
                             if _nk_resp.status_code != 200:
                                 st.error(f"API 오류 (HTTP {_nk_resp.status_code}) — 배치: {_nk_batch}")
                                 st.json(_nk_resp.json() if _nk_resp.content else {})
+                                if _nk_resp.status_code == 403:
+                                    def _mask(v: str, show: int = 4) -> str:
+                                        v = v.strip()
+                                        if len(v) <= show * 2:
+                                            return f"{'*' * len(v)} (len={len(v)})"
+                                        return f"{v[:show]}...{v[-show:]} (len={len(v)})"
+                                    st.warning(
+                                        "**현재 읽힌 credentials (마스킹):**\n\n"
+                                        f"- `NAVER_AD_API_LICENSE` : `{_mask(config.NAVER_AD_API_LICENSE)}`\n"
+                                        f"- `NAVER_AD_SECRET_KEY`  : `{_mask(config.NAVER_AD_SECRET_KEY)}`\n"
+                                        f"- `NAVER_AD_CUSTOMER_ID` : `{_mask(config.NAVER_AD_CUSTOMER_ID)}`\n\n"
+                                        "네이버 검색광고(searchad.naver.com) → 도구 → API 사용 관리에서 확인하세요."
+                                    )
                             else:
                                 _nk_data = _nk_resp.json()
                                 _nk_kw_list = _nk_data.get("keywordList", [])
