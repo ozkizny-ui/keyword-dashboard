@@ -1791,20 +1791,53 @@ elif selected_menu == "🆕 신규키워드 개발":
 
             _nk_naver_df = pd.DataFrame()
             with st.spinner("네이버 검색광고 API에서 연관 키워드 수집 중..."):
-                try:
-                    from naver_api import fetch_search_volume as _nk_fetch
-                    _nk_raw = _nk_fetch(_nk_hint_keywords)
-                    if not _nk_raw.empty:
-                        # 여러 배치에서 중복 등장한 키워드는 최대 검색수 기준으로 통합
-                        _nk_naver_df = (
-                            _nk_raw[["keyword", "totalSearchCount"]]
-                            .rename(columns={"totalSearchCount": "월간검색수"})
-                            .groupby("keyword", as_index=False)["월간검색수"].max()
-                            .sort_values("월간검색수", ascending=False)
-                            .reset_index(drop=True)
+                import requests as _nk_req
+                from naver_api import _ad_api_headers as _nk_hdrs
+                _nk_uri = "/keywordstool"
+                _nk_api_url = config.NAVER_AD_BASE_URL + _nk_uri
+                _nk_all_results = []
+
+                for _nk_i in range(0, len(_nk_hint_keywords), config.AD_API_BATCH_SIZE):
+                    _nk_batch = _nk_hint_keywords[_nk_i : _nk_i + config.AD_API_BATCH_SIZE]
+                    _nk_params = {"hintKeywords": ",".join(_nk_batch), "showDetail": "1"}
+                    try:
+                        _nk_resp = _nk_req.get(
+                            _nk_api_url,
+                            headers=_nk_hdrs("GET", _nk_uri),
+                            params=_nk_params,
+                            timeout=30,
                         )
-                except Exception as _e:
-                    st.error(f"네이버 API 오류: {_e}")
+                        if _nk_resp.status_code != 200:
+                            st.error(f"API 오류 (HTTP {_nk_resp.status_code}) — 배치: {_nk_batch}")
+                            st.json(_nk_resp.json() if _nk_resp.content else {})
+                        else:
+                            _nk_data = _nk_resp.json()
+                            _nk_kw_list = _nk_data.get("keywordList", [])
+                            if not _nk_kw_list:
+                                st.warning(f"배치 `{_nk_batch}` — API 응답에 keywordList 없음. 원본 응답:")
+                                st.json(_nk_data)
+                            _nk_all_results.extend(_nk_kw_list)
+                    except Exception as _nk_e:
+                        st.error(f"API 호출 예외 — 배치: {_nk_batch}\n{_nk_e}")
+
+                if _nk_all_results:
+                    _nk_raw = pd.DataFrame(_nk_all_results)
+                    for _c in ["monthlyPcQcCnt", "monthlyMobileQcCnt"]:
+                        if _c in _nk_raw.columns:
+                            _nk_raw[_c] = pd.to_numeric(
+                                _nk_raw[_c].replace("< 10", 5).infer_objects(copy=False),
+                                errors="coerce",
+                            ).fillna(0).astype(int)
+                    _nk_raw["totalSearchCount"] = _nk_raw.get("monthlyPcQcCnt", 0) + _nk_raw.get("monthlyMobileQcCnt", 0)
+                    if "relKeyword" in _nk_raw.columns:
+                        _nk_raw = _nk_raw.rename(columns={"relKeyword": "keyword"})
+                    _nk_naver_df = (
+                        _nk_raw[["keyword", "totalSearchCount"]]
+                        .rename(columns={"totalSearchCount": "월간검색수"})
+                        .groupby("keyword", as_index=False)["월간검색수"].max()
+                        .sort_values("월간검색수", ascending=False)
+                        .reset_index(drop=True)
+                    )
 
             st.session_state["_nk_result"] = {
                 "product": _nk_product.strip(),
