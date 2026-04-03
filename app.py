@@ -1770,7 +1770,7 @@ elif selected_menu == "🆕 신규키워드 개발":
     with st.form("new_keyword_form"):
         _nk_product = st.text_input(
             "제품명",
-            placeholder="예: 체험장갑, 아쿠아슈즈, 바람막이",
+            placeholder="예: 아기옷, 바람막이, 체험장갑",
         )
         _nk_col2, _nk_col3 = st.columns(2)
         with _nk_col2:
@@ -1795,9 +1795,28 @@ elif selected_menu == "🆕 신규키워드 개발":
 
             with st.spinner("네이버 검색광고 API에서 연관 키워드 수집 중..."):
                 try:
+                    import requests as _dbg_req
+                    import traceback as _nk_tb
+                    from naver_api import _ad_api_headers as _dbg_hdrs
+
+                    _dbg_uri = "/keywordstool"
+                    _dbg_url = config.NAVER_AD_BASE_URL + _dbg_uri
+                    _dbg_params = {
+                        "hintKeywords": ",".join(_nk_hint_keywords[:config.AD_API_BATCH_SIZE]),
+                        "showDetail": "1",
+                    }
+                    _dbg_resp = _dbg_req.get(
+                        _dbg_url,
+                        headers=_dbg_hdrs("GET", _dbg_uri),
+                        params=_dbg_params,
+                        timeout=30,
+                    )
+                    st.write(f"**HTTP 상태코드:** {_dbg_resp.status_code}")
+                    st.json(_dbg_resp.json())
+
                     from naver_api import fetch_search_volume as _nk_fetch
                     _nk_raw = _nk_fetch(_nk_hint_keywords, filter_exact=False)
-                    st.write(f"**API 응답 행 수:** {len(_nk_raw)}")
+                    st.write(f"**fetch_search_volume 응답 행 수:** {len(_nk_raw)}")
                     st.write(_nk_raw)
                     if not _nk_raw.empty:
                         _nk_naver_df = (
@@ -1808,7 +1827,6 @@ elif selected_menu == "🆕 신규키워드 개발":
                             .reset_index(drop=True)
                         )
                 except Exception as _nk_e:
-                    import traceback as _nk_tb
                     st.error(f"네이버 API 오류: {_nk_e}")
                     st.code(_nk_tb.format_exc())
 
