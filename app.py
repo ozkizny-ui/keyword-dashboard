@@ -1883,9 +1883,11 @@ elif selected_menu == "🆕 신규키워드 개발":
                         from naver_api import fetch_search_volume as _nk_fetch
                         _nk_raw = _nk_fetch(_nk_hint_keywords)
                         if not _nk_raw.empty:
+                            # 여러 배치에서 중복 등장한 키워드는 최대 검색수 기준으로 통합
                             _nk_naver_df = (
                                 _nk_raw[["keyword", "totalSearchCount"]]
                                 .rename(columns={"totalSearchCount": "월간검색수"})
+                                .groupby("keyword", as_index=False)["월간검색수"].max()
                                 .sort_values("월간검색수", ascending=False)
                                 .reset_index(drop=True)
                             )
