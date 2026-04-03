@@ -1775,7 +1775,7 @@ elif selected_menu == "🆕 신규키워드 개발":
             _nk_category = st.selectbox("카테고리", _nk_categories)
         with _nk_col3:
             _nk_target = st.selectbox("타겟", _nk_targets)
-        _nk_submitted = st.form_submit_button("🔍 키워드 추천받기", type="primary", use_container_width=True)
+        _nk_submitted = st.form_submit_button("🔍 연관 키워드 조회", type="primary", use_container_width=True)
 
     if _nk_submitted:
         if not _nk_product.strip():
@@ -1785,7 +1785,6 @@ elif selected_menu == "🆕 신규키워드 개발":
             _nk_cat_val = "" if _nk_category == "(선택 안함)" else _nk_category
             _nk_tgt_val = "" if _nk_target == "(선택 안함)" else _nk_target
 
-            # ── 네이버 연관 키워드 수집
             _nk_naver_df = pd.DataFrame()
             with st.spinner("네이버 검색광고 API에서 연관 키워드 수집 중..."):
                 try:
@@ -1801,102 +1800,43 @@ elif selected_menu == "🆕 신규키워드 개발":
                 except Exception as _e:
                     st.error(f"네이버 API 오류: {_e}")
 
-            # ── AI 추천 키워드 수집
-            _nk_ai_keywords = []
-            with st.spinner("Claude AI에서 키워드 추천 중..."):
-                try:
-                    import anthropic as _anthropic
-                    _nk_ai_client = _anthropic.Anthropic()
-                    _nk_prompt = (
-                        f"오즈키즈 브랜드의 {_nk_cat_val or '아동'} 카테고리, "
-                        f"{_nk_tgt_val or '아동'} 대상 {_nk_product} 관련 "
-                        f"네이버 쇼핑 검색 키워드 30개를 추천해줘. "
-                        f"실제 소비자가 검색할 법한 키워드로, 롱테일 키워드도 포함해줘. "
-                        f"키워드만 한 줄에 하나씩 번호 없이 출력해줘."
-                    )
-                    _nk_ai_msg = _nk_ai_client.messages.create(
-                        model="claude-sonnet-4-20250514",
-                        max_tokens=1024,
-                        messages=[{"role": "user", "content": _nk_prompt}],
-                    )
-                    _nk_ai_text = _nk_ai_msg.content[0].text
-                    _nk_ai_keywords = [
-                        line.strip().lstrip("-•·") .strip()
-                        for line in _nk_ai_text.splitlines()
-                        if line.strip() and not line.strip()[0].isdigit()
-                    ]
-                    # 번호로 시작하는 경우도 처리 (예: "1. 키워드")
-                    _nk_ai_keywords_clean = []
-                    for line in _nk_ai_text.splitlines():
-                        line = line.strip()
-                        if not line:
-                            continue
-                        import re as _re
-                        line = _re.sub(r"^\d+[\.\)]\s*", "", line).strip()
-                        line = line.lstrip("-•·").strip()
-                        if line:
-                            _nk_ai_keywords_clean.append(line)
-                    _nk_ai_keywords = _nk_ai_keywords_clean
-                except Exception as _e:
-                    st.error(f"AI API 오류: {_e}")
-
-            # ── 결과 저장 (session_state)
             st.session_state["_nk_result"] = {
                 "product": _nk_product,
                 "category": _nk_cat_val,
                 "target": _nk_tgt_val,
                 "naver_df": _nk_naver_df,
-                "ai_keywords": _nk_ai_keywords,
             }
 
     # ── 결과 표시
     if "_nk_result" in st.session_state:
         _res = st.session_state["_nk_result"]
         _nk_naver_df = _res["naver_df"]
-        _nk_ai_keywords = _res["ai_keywords"]
         _nk_product_res = _res["product"]
         _nk_cat_res = _res["category"]
         _nk_tgt_res = _res["target"]
 
         st.markdown("---")
-        _nk_rc1, _nk_rc2 = st.columns(2)
-
-        with _nk_rc1:
-            st.markdown("#### 🔗 네이버 연관 키워드")
-            if not _nk_naver_df.empty:
-                st.dataframe(
-                    _nk_naver_df.style.format({"월간검색수": "{:,.0f}"}),
-                    use_container_width=True, hide_index=True,
-                )
-            else:
-                st.info("네이버 API 결과 없음")
-
-        with _nk_rc2:
-            st.markdown("#### 🤖 AI 추천 키워드")
-            if _nk_ai_keywords:
-                _nk_ai_df = pd.DataFrame({"키워드": _nk_ai_keywords})
-                st.dataframe(_nk_ai_df, use_container_width=True, hide_index=True)
-            else:
-                st.info("AI 추천 결과 없음")
+        st.markdown("#### 🔗 네이버 연관 키워드")
+        if not _nk_naver_df.empty:
+            st.dataframe(
+                _nk_naver_df.style.format({"월간검색수": "{:,.0f}"}),
+                use_container_width=True, hide_index=True,
+            )
+        else:
+            st.info("네이버 API 결과 없음")
 
         # ── Google Sheets 저장
         if st.button("📤 Google Sheets에 저장", type="primary"):
             _today = datetime.now(KST).strftime("%Y-%m-%d")
-            _rows_to_save = []
-            for _, _r in _nk_naver_df.iterrows():
-                _rows_to_save.append({
+            _rows_to_save = [
+                {
                     "날짜": _today, "제품명": _nk_product_res,
                     "카테고리": _nk_cat_res, "타겟": _nk_tgt_res,
                     "키워드": _r["keyword"], "출처": "네이버API",
                     "월간검색수": int(_r["월간검색수"]),
-                })
-            for _kw in _nk_ai_keywords:
-                _rows_to_save.append({
-                    "날짜": _today, "제품명": _nk_product_res,
-                    "카테고리": _nk_cat_res, "타겟": _nk_tgt_res,
-                    "키워드": _kw, "출처": "AI추천",
-                    "월간검색수": "",
-                })
+                }
+                for _, _r in _nk_naver_df.iterrows()
+            ]
             try:
                 save_new_keywords(_rows_to_save)
                 st.success(f"✅ {len(_rows_to_save)}개 키워드를 Google Sheets에 저장했습니다.")
