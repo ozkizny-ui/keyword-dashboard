@@ -1176,9 +1176,10 @@ if selected_menu == "📈 주간 검색수":
         # ── 차트 1: 키워드 성장 버블맵 (전체 너비)
         st.markdown("**🫧 키워드 성장 버블맵**")
         if week_cols and len(week_cols) >= 2 and not ranked.empty:
-            # 이번주 검색수 1,000 이상인 것만 대상
-            _bubble_df = ranked[ranked["이번주"] >= 1000][["keyword", "이번주", "지난주", "변화율"]].copy()
+            # 이번주 검색수 5,000 이상인 것만 대상 + 검색수 상위 50개로 제한
+            _bubble_df = ranked[ranked["이번주"] >= 5000][["keyword", "이번주", "지난주", "변화율"]].copy()
             _bubble_df = _bubble_df.dropna(subset=["변화율"])
+            _bubble_df = _bubble_df.nlargest(50, "이번주")
 
             if not _bubble_df.empty:
                 # 버블 색상: 양수=빨간계열, 음수=파란계열
@@ -1204,7 +1205,7 @@ if selected_menu == "📈 주간 검색수":
                     ),
                     text=_bubble_df["keyword"],
                     textposition="middle center",
-                    textfont=dict(size=10, color="white"),
+                    textfont=dict(size=10, color="#1a1a1a"),
                     customdata=_bubble_df[["keyword", "이번주", "지난주", "변화율"]].values,
                     hovertemplate=(
                         "<b>%{customdata[0]}</b><br>"
