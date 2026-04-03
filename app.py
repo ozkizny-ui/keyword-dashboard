@@ -1766,11 +1766,85 @@ elif selected_menu == "🆕 신규키워드 개발":
         if "성별/나이" in meta_df.columns:
             _nk_targets += sorted(meta_df["성별/나이"].dropna().unique().tolist())
 
+    # ── URL에서 키워드 추출 헬퍼
+    def _extract_keywords_from_url(url: str) -> tuple[str, list[str]]:
+        """
+        제품 URL을 크롤링해 제품명과 hint 키워드 목록을 반환합니다.
+        반환: (product_title, [keyword, ...])
+        """
+        import re as _re
+        import requests as _req
+        from bs4 import BeautifulSoup as _BS
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "ko-KR,ko;q=0.9",
+        }
+        resp = _req.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        soup = _BS(resp.text, "html.parser")
+
+        # 1) 제품명: og:title > title 태그
+        og_title = soup.find("meta", property="og:title")
+        title_tag = soup.find("title")
+        product_title = (
+            og_title["content"].strip() if og_title and og_title.get("content")
+            else (title_tag.get_text(strip=True) if title_tag else "")
+        )
+        # 사이트명 제거 (예: "제품명 : 네이버쇼핑", "제품명 | 스토어")
+        product_title = _re.split(r"\s*[:\|·]\s*네이버|스마트스토어|쇼핑|store", product_title, flags=_re.I)[0].strip()
+
+        keywords = []
+
+        # 2) meta keywords
+        meta_kw = soup.find("meta", attrs={"name": "keywords"})
+        if meta_kw and meta_kw.get("content"):
+            for kw in _re.split(r"[,，、]", meta_kw["content"]):
+                kw = kw.strip()
+                if kw:
+                    keywords.append(kw)
+
+        # 3) meta description에서 명사구 추출
+        meta_desc = soup.find("meta", attrs={"name": "description"}) or \
+                    soup.find("meta", property="og:description")
+        if meta_desc and meta_desc.get("content"):
+            desc_text = meta_desc["content"]
+            # 2~10자 한글 단어 추출
+            for kw in _re.findall(r"[가-힣]{2,10}", desc_text):
+                if kw not in keywords:
+                    keywords.append(kw)
+
+        # 4) 페이지 내 태그/해시태그 요소 (네이버 스마트스토어 구조 대응)
+        for tag in soup.select(
+            "span.tag, a.tag, .product-tag, .tag-item, "
+            "[class*='tag'], [class*='Tag'], [class*='keyword'], [class*='Keyword']"
+        ):
+            kw = tag.get_text(strip=True).lstrip("#").strip()
+            if 2 <= len(kw) <= 15 and kw not in keywords:
+                keywords.append(kw)
+
+        # 5) 제품명 자체도 hint에 포함
+        if product_title and product_title not in keywords:
+            keywords.insert(0, product_title)
+
+        # 중복 제거 + 최대 20개 (API 부하 방지)
+        seen = []
+        for k in keywords:
+            if k not in seen:
+                seen.append(k)
+        return product_title, seen[:20]
+
     # ── 입력 폼
     with st.form("new_keyword_form"):
-        _nk_col1, _nk_col2, _nk_col3 = st.columns(3)
-        with _nk_col1:
-            _nk_product = st.text_input("제품명", placeholder="예: 아동 레인부츠")
+        _nk_url = st.text_input(
+            "제품 URL",
+            placeholder="예: https://smartstore.naver.com/ozkiz/products/...",
+        )
+        _nk_col2, _nk_col3 = st.columns(2)
         with _nk_col2:
             _nk_category = st.selectbox("카테고리", _nk_categories)
         with _nk_col3:
@@ -1778,30 +1852,49 @@ elif selected_menu == "🆕 신규키워드 개발":
         _nk_submitted = st.form_submit_button("🔍 연관 키워드 조회", type="primary", use_container_width=True)
 
     if _nk_submitted:
-        if not _nk_product.strip():
-            st.warning("제품명을 입력해주세요.")
+        if not _nk_url.strip():
+            st.warning("제품 URL을 입력해주세요.")
         else:
-            _nk_product = _nk_product.strip()
+            _nk_url = _nk_url.strip()
             _nk_cat_val = "" if _nk_category == "(선택 안함)" else _nk_category
             _nk_tgt_val = "" if _nk_target == "(선택 안함)" else _nk_target
 
-            _nk_naver_df = pd.DataFrame()
-            with st.spinner("네이버 검색광고 API에서 연관 키워드 수집 중..."):
+            # ── 1단계: URL 크롤링 & 키워드 추출
+            _nk_product_title = ""
+            _nk_hint_keywords = []
+            with st.spinner("페이지에서 키워드 분석 중..."):
                 try:
-                    from naver_api import fetch_search_volume as _nk_fetch
-                    _nk_raw = _nk_fetch([_nk_product])
-                    if not _nk_raw.empty:
-                        _nk_naver_df = (
-                            _nk_raw[["keyword", "totalSearchCount"]]
-                            .rename(columns={"totalSearchCount": "월간검색수"})
-                            .sort_values("월간검색수", ascending=False)
-                            .reset_index(drop=True)
-                        )
+                    _nk_product_title, _nk_hint_keywords = _extract_keywords_from_url(_nk_url)
                 except Exception as _e:
-                    st.error(f"네이버 API 오류: {_e}")
+                    st.error(f"페이지 분석 오류: {_e}")
+
+            if _nk_hint_keywords:
+                st.info(
+                    f"**{_nk_product_title}** — 추출된 hint 키워드 {len(_nk_hint_keywords)}개: "
+                    + ", ".join(_nk_hint_keywords[:10])
+                    + ("..." if len(_nk_hint_keywords) > 10 else "")
+                )
+
+            # ── 2단계: 네이버 연관 키워드 수집
+            _nk_naver_df = pd.DataFrame()
+            if _nk_hint_keywords:
+                with st.spinner("네이버 검색광고 API에서 연관 키워드 수집 중..."):
+                    try:
+                        from naver_api import fetch_search_volume as _nk_fetch
+                        _nk_raw = _nk_fetch(_nk_hint_keywords)
+                        if not _nk_raw.empty:
+                            _nk_naver_df = (
+                                _nk_raw[["keyword", "totalSearchCount"]]
+                                .rename(columns={"totalSearchCount": "월간검색수"})
+                                .sort_values("월간검색수", ascending=False)
+                                .reset_index(drop=True)
+                            )
+                    except Exception as _e:
+                        st.error(f"네이버 API 오류: {_e}")
 
             st.session_state["_nk_result"] = {
-                "product": _nk_product,
+                "product": _nk_product_title or _nk_url,
+                "url": _nk_url,
                 "category": _nk_cat_val,
                 "target": _nk_tgt_val,
                 "naver_df": _nk_naver_df,
