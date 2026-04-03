@@ -1176,93 +1176,65 @@ if selected_menu == "📈 주간 검색수":
         # ── 상단 차트 3개 ────────────────────────────────
         ch1, ch2, ch3 = st.columns(3)
 
-        # ── 차트 1: 급상승 TOP 100 올해 vs 작년 비교
+        # ── 차트 1: 키워드 성장 버블맵
         with ch1:
-            st.markdown("**📈 급상승 TOP 100 — 올해 vs 작년**")
+            st.markdown("**🫧 키워드 성장 버블맵**")
             if week_cols and len(week_cols) >= 2 and not ranked.empty:
-                _this_week_col = week_cols[-1]
-                _vol_map = filtered.set_index("keyword")[_this_week_col].to_dict()
-
                 # 이번주 검색수 1,000 이상인 것만 대상
-                _ranked_filtered = ranked[
-                    ranked["keyword"].map(lambda k: _vol_map.get(k, 0)) >= 1000
-                ]
-                _top10_up = _ranked_filtered.nlargest(100, "변화율")[["keyword", "이번주", "변화율"]].copy()
+                _bubble_df = ranked[ranked["이번주"] >= 1000][["keyword", "이번주", "지난주", "변화율"]].copy()
+                _bubble_df = _bubble_df.dropna(subset=["변화율"])
 
-                if not _top10_up.empty:
-                    # ── 작년 같은 주차 컬럼을 weekly_df에서 탐색
-                    _ly_col = None
-                    _cur_start = None
-                    try:
-                        _cur_start = datetime.strptime(
-                            _this_week_col.split("-")[0], "%Y.%m.%d"
-                        )
-                        _ly_target = _cur_start - timedelta(weeks=52)
-                        _best_col, _best_diff = None, None
-                        for _wc in weekly_df.columns[1:]:
-                            try:
-                                _wc_start = datetime.strptime(_wc.split("-")[0], "%Y.%m.%d")
-                                _diff = abs((_wc_start - _ly_target).days)
-                                if _best_diff is None or _diff < _best_diff:
-                                    _best_diff, _best_col = _diff, _wc
-                            except ValueError:
-                                continue
-                        if _best_col and _best_diff <= 14:
-                            _ly_col = _best_col
-                    except (ValueError, IndexError):
-                        pass
-
-                    if _ly_col:
-                        # weekly_df에서 작년 데이터 가져오기
-                        _ly_map = weekly_df.set_index("keyword")[_ly_col].to_dict()
-                        _top10_up["작년"] = _top10_up["keyword"].map(_ly_map).fillna(0)
-                    elif _cur_start is not None:
-                        # 연간 트렌드 시트에서 같은 ISO 주차 데이터 탐색
-                        _trend_fb = load_trend()
-                        _top10_up["작년"] = 0
-                        if (
-                            not _trend_fb.empty
-                            and "keyword" in _trend_fb.columns
-                            and "estimated_weekly_volume" in _trend_fb.columns
-                            and "date" in _trend_fb.columns
-                        ):
-                            _tdf2 = _trend_fb.copy()
-                            _tdf2["_date"] = pd.to_datetime(_tdf2["date"], errors="coerce")
-                            _tdf2["_year"] = _tdf2["_date"].dt.year
-                            _tdf2["_week"] = _tdf2["_date"].dt.isocalendar().week
-                            _iso_week = _cur_start.isocalendar()[1]
-                            _ly_year = _cur_start.year - 1
-                            _ly_trend = _tdf2[
-                                (_tdf2["_year"] == _ly_year) & (_tdf2["_week"] == _iso_week)
-                            ][["keyword", "estimated_weekly_volume"]]
-                            _ly_map2 = _ly_trend.set_index("keyword")["estimated_weekly_volume"].to_dict()
-                            _top10_up["작년"] = _top10_up["keyword"].map(_ly_map2).fillna(0)
-                    else:
-                        _top10_up["작년"] = 0
-
-                    _top10_up = _top10_up.rename(columns={"이번주": "올해"})
-                    _top10_up = _top10_up.sort_values("올해", ascending=True)
-
-                    _chart_df = pd.melt(
-                        _top10_up[["keyword", "올해", "작년"]],
-                        id_vars="keyword", var_name="기간", value_name="검색수",
+                if not _bubble_df.empty:
+                    # 버블 색상: 양수=빨간계열, 음수=파란계열
+                    _bubble_df["color"] = _bubble_df["변화율"].apply(
+                        lambda v: f"rgba(220,53,69,{min(0.4 + abs(v)/200, 0.95):.2f})"
+                        if v >= 0
+                        else f"rgba(13,110,253,{min(0.4 + abs(v)/200, 0.95):.2f})"
                     )
-                    fig_cmp = px.bar(
-                        _chart_df, x="검색수", y="keyword",
-                        color="기간", orientation="h", barmode="group",
-                        color_discrete_map={"올해": "#667eea", "작년": "#adb5bd"},
-                        text="검색수",
+                    # 버블 크기: 이번주 검색수에 비례 (적절한 스케일)
+                    _max_vol = _bubble_df["이번주"].max()
+                    _bubble_df["size"] = (_bubble_df["이번주"] / _max_vol * 50).clip(lower=5)
+
+                    fig_bubble = go.Figure()
+                    fig_bubble.add_trace(go.Scatter(
+                        x=_bubble_df["이번주"],
+                        y=_bubble_df["변화율"],
+                        mode="markers+text",
+                        marker=dict(
+                            size=_bubble_df["size"],
+                            color=_bubble_df["color"],
+                            line=dict(width=0.5, color="rgba(255,255,255,0.6)"),
+                            sizemode="diameter",
+                        ),
+                        text=_bubble_df["keyword"],
+                        textposition="middle center",
+                        textfont=dict(size=9, color="white"),
+                        customdata=_bubble_df[["keyword", "이번주", "지난주", "변화율"]].values,
+                        hovertemplate=(
+                            "<b>%{customdata[0]}</b><br>"
+                            "이번주: %{customdata[1]:,.0f}<br>"
+                            "지난주: %{customdata[2]:,.0f}<br>"
+                            "변화율: %{customdata[3]:+.1f}%"
+                            "<extra></extra>"
+                        ),
+                    ))
+                    # y=0 기준선 점선
+                    fig_bubble.add_hline(
+                        y=0, line_dash="dot", line_color="gray", line_width=1.5
                     )
-                    fig_cmp.update_traces(texttemplate="%{text:,.0f}", textposition="outside")
-                    fig_cmp.update_layout(
-                        margin=dict(t=10, b=10, l=10, r=80),
-                        yaxis_title=None, xaxis_title=None,
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+                    fig_bubble.update_layout(
+                        title=dict(text="키워드 성장 버블맵", font=dict(size=13), x=0.5, xanchor="center"),
+                        xaxis=dict(title="이번주 검색수", tickformat=","),
+                        yaxis=dict(title="전주 대비 변화율 (%)"),
+                        margin=dict(t=40, b=40, l=50, r=20),
                         height=280,
+                        showlegend=False,
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
                     )
-                    st.plotly_chart(fig_cmp, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
+                    st.plotly_chart(fig_bubble, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
                 else:
-                    st.info("조건에 맞는 키워드 없음\n(이번주 검색수 1,000 이상 & 변화율 상위 필요)")
+                    st.info("조건에 맞는 키워드 없음\n(이번주 검색수 1,000 이상 필요)")
             else:
                 st.info("데이터 부족 (최소 2주 필요)")
 
