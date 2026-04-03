@@ -1173,70 +1173,69 @@ if selected_menu == "📈 주간 검색수":
                        9: "가을", 10: "가을", 11: "가을"}
         current_season = _season_map[_month]
 
-        # ── 상단 차트 3개 ────────────────────────────────
-        ch1, ch2, ch3 = st.columns(3)
+        # ── 차트 1: 키워드 성장 버블맵 (전체 너비)
+        st.markdown("**🫧 키워드 성장 버블맵**")
+        if week_cols and len(week_cols) >= 2 and not ranked.empty:
+            # 이번주 검색수 1,000 이상인 것만 대상
+            _bubble_df = ranked[ranked["이번주"] >= 1000][["keyword", "이번주", "지난주", "변화율"]].copy()
+            _bubble_df = _bubble_df.dropna(subset=["변화율"])
 
-        # ── 차트 1: 키워드 성장 버블맵
-        with ch1:
-            st.markdown("**🫧 키워드 성장 버블맵**")
-            if week_cols and len(week_cols) >= 2 and not ranked.empty:
-                # 이번주 검색수 1,000 이상인 것만 대상
-                _bubble_df = ranked[ranked["이번주"] >= 1000][["keyword", "이번주", "지난주", "변화율"]].copy()
-                _bubble_df = _bubble_df.dropna(subset=["변화율"])
+            if not _bubble_df.empty:
+                # 버블 색상: 양수=빨간계열, 음수=파란계열
+                _bubble_df["color"] = _bubble_df["변화율"].apply(
+                    lambda v: f"rgba(220,53,69,{min(0.4 + abs(v)/200, 0.95):.2f})"
+                    if v >= 0
+                    else f"rgba(13,110,253,{min(0.4 + abs(v)/200, 0.95):.2f})"
+                )
+                # 버블 크기: 이번주 검색수에 비례
+                _max_vol = _bubble_df["이번주"].max()
+                _bubble_df["size"] = (_bubble_df["이번주"] / _max_vol * 80).clip(lower=8)
 
-                if not _bubble_df.empty:
-                    # 버블 색상: 양수=빨간계열, 음수=파란계열
-                    _bubble_df["color"] = _bubble_df["변화율"].apply(
-                        lambda v: f"rgba(220,53,69,{min(0.4 + abs(v)/200, 0.95):.2f})"
-                        if v >= 0
-                        else f"rgba(13,110,253,{min(0.4 + abs(v)/200, 0.95):.2f})"
-                    )
-                    # 버블 크기: 이번주 검색수에 비례 (적절한 스케일)
-                    _max_vol = _bubble_df["이번주"].max()
-                    _bubble_df["size"] = (_bubble_df["이번주"] / _max_vol * 50).clip(lower=5)
-
-                    fig_bubble = go.Figure()
-                    fig_bubble.add_trace(go.Scatter(
-                        x=_bubble_df["이번주"],
-                        y=_bubble_df["변화율"],
-                        mode="markers+text",
-                        marker=dict(
-                            size=_bubble_df["size"],
-                            color=_bubble_df["color"],
-                            line=dict(width=0.5, color="rgba(255,255,255,0.6)"),
-                            sizemode="diameter",
-                        ),
-                        text=_bubble_df["keyword"],
-                        textposition="middle center",
-                        textfont=dict(size=9, color="white"),
-                        customdata=_bubble_df[["keyword", "이번주", "지난주", "변화율"]].values,
-                        hovertemplate=(
-                            "<b>%{customdata[0]}</b><br>"
-                            "이번주: %{customdata[1]:,.0f}<br>"
-                            "지난주: %{customdata[2]:,.0f}<br>"
-                            "변화율: %{customdata[3]:+.1f}%"
-                            "<extra></extra>"
-                        ),
-                    ))
-                    # y=0 기준선 점선
-                    fig_bubble.add_hline(
-                        y=0, line_dash="dot", line_color="gray", line_width=1.5
-                    )
-                    fig_bubble.update_layout(
-                        title=dict(text="키워드 성장 버블맵", font=dict(size=13), x=0.5, xanchor="center"),
-                        xaxis=dict(title="이번주 검색수", tickformat=","),
-                        yaxis=dict(title="전주 대비 변화율 (%)"),
-                        margin=dict(t=40, b=40, l=50, r=20),
-                        height=280,
-                        showlegend=False,
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                    )
-                    st.plotly_chart(fig_bubble, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
-                else:
-                    st.info("조건에 맞는 키워드 없음\n(이번주 검색수 1,000 이상 필요)")
+                fig_bubble = go.Figure()
+                fig_bubble.add_trace(go.Scatter(
+                    x=_bubble_df["이번주"],
+                    y=_bubble_df["변화율"],
+                    mode="markers+text",
+                    marker=dict(
+                        size=_bubble_df["size"],
+                        color=_bubble_df["color"],
+                        line=dict(width=0.5, color="rgba(255,255,255,0.6)"),
+                        sizemode="diameter",
+                    ),
+                    text=_bubble_df["keyword"],
+                    textposition="middle center",
+                    textfont=dict(size=10, color="white"),
+                    customdata=_bubble_df[["keyword", "이번주", "지난주", "변화율"]].values,
+                    hovertemplate=(
+                        "<b>%{customdata[0]}</b><br>"
+                        "이번주: %{customdata[1]:,.0f}<br>"
+                        "지난주: %{customdata[2]:,.0f}<br>"
+                        "변화율: %{customdata[3]:+.1f}%"
+                        "<extra></extra>"
+                    ),
+                ))
+                # y=0 기준선 점선
+                fig_bubble.add_hline(
+                    y=0, line_dash="dot", line_color="gray", line_width=1.5
+                )
+                fig_bubble.update_layout(
+                    title=dict(text="키워드 성장 버블맵", font=dict(size=14), x=0.5, xanchor="center"),
+                    xaxis=dict(title="이번주 검색수", tickformat=","),
+                    yaxis=dict(title="전주 대비 변화율 (%)"),
+                    margin=dict(t=50, b=50, l=60, r=30),
+                    height=500,
+                    showlegend=False,
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(fig_bubble, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
             else:
-                st.info("데이터 부족 (최소 2주 필요)")
+                st.info("조건에 맞는 키워드 없음\n(이번주 검색수 1,000 이상 필요)")
+        else:
+            st.info("데이터 부족 (최소 2주 필요)")
+
+        # ── 차트 2·3: 검색수 TOP 10 + 계절 전환 지표 (나란히 작게)
+        ch2, ch3 = st.columns(2)
 
         # ── 차트 2: 검색수 TOP 10 가로 바차트
         with ch2:
