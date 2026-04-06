@@ -521,7 +521,7 @@ def suggest_related_keywords(
 
     # 빈도 기준 상위 맥락 단어 선정
     top_context = sorted(context_words.keys(),
-                         key=lambda k: context_words[k], reverse=True)[:20]
+                         key=lambda k: context_words[k], reverse=True)[:50]
 
     # ════════════════════════════════════════
     # 2단계: 맥락 단어를 hintKeywords로 검색광고 API에 전달
@@ -541,7 +541,7 @@ def suggest_related_keywords(
         all_hints.append(batch)
 
     # 맥락 단어끼리만 조합 (시드 없이, 사용 상황 키워드 확장)
-    for i in range(0, min(len(top_context), 10), 5):
+    for i in range(0, min(len(top_context), 25), 5):
         batch = top_context[i:i + 5]
         if batch:
             all_hints.append(batch)
