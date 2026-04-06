@@ -429,6 +429,25 @@ def suggest_related_keywords(
             print(f"[블로그 검색 오류] {e}")
         time.sleep(0.2)
 
+    # ── 카페 검색 (제목 + 설명 수집) ──
+    for start in [1, 51]:
+        try:
+            resp = requests.get(
+                "https://openapi.naver.com/v1/search/cafearticle.json",
+                headers=headers,
+                params={"query": seed_keyword, "display": 50, "start": start, "sort": "sim"},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                for item in resp.json().get("items", []):
+                    title = re.sub(r'<[^>]+>', '', item.get("title", ""))
+                    desc = re.sub(r'<[^>]+>', '', item.get("description", ""))
+                    all_texts.append(title)
+                    all_texts.append(desc)
+        except Exception as e:
+            print(f"[카페 검색 오류] {e}")
+        time.sleep(0.2)
+
     # ── 쇼핑 검색 (상품명 수집) ──
     try:
         resp = requests.get(
@@ -487,9 +506,9 @@ def suggest_related_keywords(
     if not filtered:
         return []
 
-    # 빈도 기준 상위 후보 (검색수 조회할 양 — 넉넉히)
+    # 빈도 기준 정렬
     top_candidates = sorted(filtered.keys(),
-                            key=lambda k: filtered[k], reverse=True)[:max_results * 4]
+                            key=lambda k: filtered[k], reverse=True)
 
     # ── 검색수 조회 ──
     volume_df = fetch_search_volume(top_candidates, filter_exact=True)
