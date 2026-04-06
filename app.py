@@ -379,6 +379,17 @@ span[data-baseweb="tag"] {
 
 @st.cache_data(ttl=300)
 def load_weekly():
+    """키워드사전 탭에서 주간검색수 데이터 로드 (fallback: 주간검색수 시트)"""
+    kd = load_keyword_dict()
+    if not kd.empty and "keyword" in kd.columns:
+        meta_cols = {"계절", "복종", "연령", "성별", "카테고리", "대표키워드", "키워드"}
+        week_cols = [c for c in kd.columns if c not in meta_cols and c != "keyword"]
+        if week_cols:
+            result = kd[["keyword"] + week_cols].copy()
+            result["keyword"] = result["keyword"].str.strip()
+            result = result.drop_duplicates(subset="keyword", keep="first").reset_index(drop=True)
+            return result
+    # fallback: 기존 주간검색수 시트
     return read_weekly_data()
 
 @st.cache_data(ttl=300)
@@ -415,6 +426,26 @@ def load_setting(key: str, fallback: str = "") -> str:
 
 @st.cache_data(ttl=3600)
 def load_meta():
+    """키워드사전 탭에서 메타 정보 로드 (fallback: keywords_meta.csv)"""
+    kd = load_keyword_dict()
+    if not kd.empty and "keyword" in kd.columns:
+        meta = kd[["keyword"]].copy()
+        # 계절 매핑
+        if "계절" in kd.columns:
+            meta["계절"] = kd["계절"]
+        # 카테고리 매핑
+        if "카테고리" in kd.columns:
+            meta["카테고리"] = kd["카테고리"]
+        # 성별/나이 매핑 (키워드사전: 성별 + 연령 → 결합)
+        if "성별" in kd.columns and "연령" in kd.columns:
+            meta["성별/나이"] = kd["성별"].astype(str).str.strip() + "/" + kd["연령"].astype(str).str.strip()
+            meta["성별/나이"] = meta["성별/나이"].str.strip("/").replace({"": pd.NA, "/": pd.NA})
+        elif "성별" in kd.columns:
+            meta["성별/나이"] = kd["성별"]
+        meta["keyword"] = meta["keyword"].str.strip()
+        meta = meta.drop_duplicates(subset="keyword", keep="first").reset_index(drop=True)
+        return meta
+    # fallback: CSV 파일
     try:
         return pd.read_csv(config.KEYWORDS_META_FILE, encoding="utf-8-sig")
     except FileNotFoundError:
