@@ -413,7 +413,7 @@ def suggest_related_keywords(
 
     if not config.NAVER_CLIENT_ID or not config.NAVER_CLIENT_SECRET:
         print("[연관키워드] 네이버 검색 API 키가 설정되지 않았습니다.")
-        return []
+        return {"results": [], "context_words": []}
 
     headers = {
         "X-Naver-Client-Id": config.NAVER_CLIENT_ID,
@@ -480,7 +480,7 @@ def suggest_related_keywords(
     time.sleep(0.2)
 
     if not all_texts:
-        return []
+        return {"results": [], "context_words": []}
 
     # ════════════════════════════════════════
     # 1단계: 텍스트에서 맥락 단어 추출
@@ -517,7 +517,7 @@ def suggest_related_keywords(
         context_words[candidate] = count
 
     if not context_words:
-        return []
+        return {"results": [], "context_words": []}
 
     # 빈도 기준 상위 맥락 단어 선정
     top_context = sorted(context_words.keys(),
@@ -573,15 +573,17 @@ def suggest_related_keywords(
 
     if not all_results:
         # API 실패 시 빈도 기준으로 반환
-        return [
+        debug_context = [(kw, context_words[kw]) for kw in top_context]
+        return {"results": [
             {"keyword": kw, "월간검색수": 0, "출현빈도": context_words[kw]}
             for kw in top_context[:max_results]
-        ]
+        ], "context_words": debug_context}
 
     # 결과 DataFrame 생성
     df = pd.DataFrame(all_results)
     if "relKeyword" not in df.columns:
-        return []
+        debug_context = [(kw, context_words[kw]) for kw in top_context]
+        return {"results": [], "context_words": debug_context}
 
     for col in ["monthlyPcQcCnt", "monthlyMobileQcCnt"]:
         if col in df.columns:
@@ -625,4 +627,8 @@ def suggest_related_keywords(
             "월간검색수": int(row["totalSearchCount"]),
             "출현빈도": context_words.get(kw, 0),
         })
-    return result
+
+    # 디버그 정보: 맥락 단어 상위 50개와 빈도
+    debug_context = [(kw, context_words[kw]) for kw in top_context]
+
+    return {"results": result, "context_words": debug_context}

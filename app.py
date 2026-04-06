@@ -1807,9 +1807,20 @@ elif selected_menu == "🆕 신규키워드 개발":
 
                     # 각 시드 키워드별로 연관 키워드 추천
                     _all_suggestions = []
+                    _all_context = []
                     for _seed in _nk_seed_keywords:
-                        _suggestions = suggest_related_keywords(_seed, max_results=15)
-                        _all_suggestions.extend(_suggestions)
+                        _result = suggest_related_keywords(_seed, max_results=30)
+                        if isinstance(_result, dict):
+                            _all_suggestions.extend(_result.get("results", []))
+                            _all_context.extend(_result.get("context_words", []))
+                        elif isinstance(_result, list):
+                            _all_suggestions.extend(_result)
+
+                    # 맥락 단어 디버그 표시
+                    if _all_context:
+                        with st.expander(f"🔍 맥락 단어 ({len(_all_context)}개) — 블로그/카페/쇼핑에서 추출", expanded=False):
+                            _ctx_text = ", ".join([f"{kw}({cnt})" for kw, cnt in _all_context[:50]])
+                            st.caption(_ctx_text)
 
                     if _all_suggestions:
                         _nk_naver_df = pd.DataFrame(_all_suggestions)
@@ -1822,7 +1833,7 @@ elif selected_menu == "🆕 신규키워드 개발":
                             .sort_values("월간검색수", ascending=False)
                             .reset_index(drop=True)
                         )
-                        st.caption(f"📊 추천 키워드: **{len(_nk_naver_df)}개** (블로그/쇼핑 검색 결과 분석)")
+                        st.caption(f"📊 추천 키워드: **{len(_nk_naver_df)}개** (블로그/카페/쇼핑 검색 결과 분석)")
                     else:
                         st.warning("연관 키워드를 찾지 못했습니다. 다른 키워드로 시도해보세요.")
                 except Exception as _nk_e:
