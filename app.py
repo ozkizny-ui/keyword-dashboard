@@ -1956,13 +1956,12 @@ elif selected_menu == "⚙️ 데이터 관리":
             _week_cols = [c for c in _kd.columns if c not in set(_meta_cols) | {"keyword"}]
             st.success(f"✅ 키워드: **{len(_kd)}개** | 주차 데이터: **{len(_week_cols)}개**")
 
-            # 최신 주차 미리보기
-            if _week_cols:
-                _latest = _week_cols[-1]
-                st.caption(f"최신 주차: `{_latest}`")
-
             st.dataframe(_kd[_meta_cols[:3] + ["keyword"] + _week_cols[-3:]].head(20) if _week_cols else _kd.head(20),
                          use_container_width=True, hide_index=True)
+
+            # 최신 주차 표시 (표 아래)
+            if _week_cols:
+                st.caption(f"최신 주차: `{_week_cols[-1]}`")
 
         if st.button("🔄 캐시 새로고침", type="primary"):
             st.cache_data.clear()
