@@ -393,21 +393,18 @@ _STOPWORDS = {
 
 def suggest_related_keywords(
     seed_keyword: str,
-    max_results: int = 15,
+    max_results: int = 30,
 ) -> list[dict]:
     """
-    네이버 공식 검색 API(블로그 + 쇼핑)를 활용하여
-    시드 키워드와 관련된 '사용 맥락' 키워드를 추천합니다.
+    네이버 검색 API를 활용하여 제품의 '구매 맥락' 키워드를 추천합니다.
 
-    예) "유아목장갑" → 갯벌체험, 고구마캐기, 글램핑, 오징어잡이체험 등
+    목표: "이 제품을 사는 사람이 검색할 키워드" 찾기
+    예) "유아목장갑" → 갯벌체험, 고구마캐기, 글램핑, 어린이목장갑 등
 
-    방법:
-    1. 블로그 검색 결과 제목 + 설명에서 키워드 추출
-    2. 쇼핑 검색 결과 상품명에서 키워드 추출
-    3. 불용어/시드 키워드 자체 제거
-    4. 빈도 기준 상위 후보 선정
-    5. 검색광고 API로 검색수 조회
-    6. 검색수 기준 정렬하여 반환
+    2단계 접근:
+    1단계 - 맥락 추출: 블로그/카페 글에서 제품 사용 상황 단어 수집
+    2단계 - 키워드 확장: 맥락 단어 + 시드를 검색광고 API hintKeywords로 전달
+            → 네이버가 판단하는 연관 키워드와 검색수를 함께 반환
 
     반환: [{"keyword": str, "월간검색수": int, "출현빈도": int}, ...]
     """
@@ -429,7 +426,7 @@ def suggest_related_keywords(
     all_texts = []
 
     # ── 블로그 검색 (제목 + 설명 수집) ──
-    for start in [1, 51]:  # 100개 수집 (50 × 2)
+    for start in [1, 51]:
         try:
             resp = requests.get(
                 "https://openapi.naver.com/v1/search/blog.json",
@@ -485,102 +482,147 @@ def suggest_related_keywords(
     if not all_texts:
         return []
 
-    # ── 텍스트에서 키워드 후보 추출 ──
+    # ════════════════════════════════════════
+    # 1단계: 텍스트에서 맥락 단어 추출
+    # ════════════════════════════════════════
     candidate_counter = Counter()
 
     for text in all_texts:
-        # 한글 단어 추출 (2~8글자)
         words = re.findall(r'[가-힣]{2,8}', text)
 
-        # 단일 단어
         for w in words:
             candidate_counter[w] += 1
 
-        # 인접 2단어 조합 (복합 키워드)
         for i in range(len(words) - 1):
             compound = words[i] + words[i + 1]
             if 4 <= len(compound) <= 12:
                 candidate_counter[compound] += 1
 
-        # 인접 3단어 조합 (긴 복합 키워드: 미끄럼방지장갑 등)
         for i in range(len(words) - 2):
             compound3 = words[i] + words[i + 1] + words[i + 2]
             if 6 <= len(compound3) <= 14:
                 candidate_counter[compound3] += 1
 
-    # ── 필터링 ──
-    filtered = {}
+    # 맥락 단어 필터링
+    context_words = {}
     for candidate, count in candidate_counter.items():
-        # 최소 3회 이상 등장
         if count < 3:
             continue
-        # 불용어 제거
         if candidate in _STOPWORDS:
             continue
-        # 1글자 제거 (이미 2글자 이상이지만 안전장치)
         if len(candidate) < 2:
             continue
-        # 시드 키워드 자체와 동일한 것 제거 (시드 구성 단어도 제거)
-        if candidate == seed_clean:
+        if candidate == seed_clean or candidate in seed_words:
             continue
-        if candidate in seed_words:
-            continue
-        filtered[candidate] = count
+        context_words[candidate] = count
 
-    if not filtered:
+    if not context_words:
         return []
 
-    # 빈도 기준 상위 30개 후보만 (API 호출 최적화)
-    top_candidates = sorted(filtered.keys(),
-                            key=lambda k: filtered[k], reverse=True)[:30]
+    # 빈도 기준 상위 맥락 단어 선정
+    top_context = sorted(context_words.keys(),
+                         key=lambda k: context_words[k], reverse=True)[:20]
 
-    # ── 검색수 조회 (filter_exact=False → 후보 기반 연관 키워드도 포함) ──
-    volume_df = fetch_search_volume(top_candidates, filter_exact=False)
+    # ════════════════════════════════════════
+    # 2단계: 맥락 단어를 hintKeywords로 검색광고 API에 전달
+    #        시드 키워드와 맥락 단어를 조합하여 연관 키워드 확장
+    # ════════════════════════════════════════
 
-    if volume_df.empty:
-        # 검색수 조회 실패 시 빈도 기준으로 반환
+    # 방법 A: 시드 + 맥락 단어를 함께 hintKeywords로 전달
+    #   → 네이버 API가 이 조합에서 연관 키워드를 반환
+    # 방법 B: 맥락 단어 단독으로도 hintKeywords 전달
+    #   → "고구마" → "고구마캐기", "고구마캐기체험" 등 확장
+
+    all_hints = []
+
+    # 시드 + 맥락 조합 (5개씩 배치, 시드 항상 포함)
+    for i in range(0, len(top_context), 4):
+        batch = [seed_clean] + top_context[i:i + 4]
+        all_hints.append(batch)
+
+    # 맥락 단어끼리만 조합 (시드 없이, 사용 상황 키워드 확장)
+    for i in range(0, min(len(top_context), 10), 5):
+        batch = top_context[i:i + 5]
+        if batch:
+            all_hints.append(batch)
+
+    # 각 배치를 검색광고 API에 전달
+    all_results = []
+    seen_keywords = set()
+
+    uri = "/keywordstool"
+    url = config.NAVER_AD_BASE_URL + uri
+
+    for hint_batch in all_hints:
+        params = {
+            "hintKeywords": ",".join(hint_batch),
+            "showDetail": "1",
+        }
+        for attempt in range(2):
+            ad_headers = _ad_api_headers("GET", uri)
+            try:
+                resp = requests.get(url, headers=ad_headers, params=params, timeout=30)
+                if resp.status_code == 200:
+                    data = resp.json().get("keywordList", [])
+                    all_results.extend(data)
+                    break
+            except Exception:
+                if attempt < 1:
+                    time.sleep(1)
+        time.sleep(0.5)
+
+    if not all_results:
+        # API 실패 시 빈도 기준으로 반환
         return [
-            {"keyword": kw, "월간검색수": 0, "출현빈도": filtered[kw]}
-            for kw in top_candidates[:max_results]
+            {"keyword": kw, "월간검색수": 0, "출현빈도": context_words[kw]}
+            for kw in top_context[:max_results]
         ]
 
-    # 결과 필터링: 후보 단어 중 하나라도 포함된 키워드만 유지
-    # (예: 후보 "갯벌" → "갯벌체험", "갯벌장갑" 등 포함)
-    # 하지만 너무 범용적인 2글자 후보는 필터 기준에서 제외
-    _filter_words = [c for c in top_candidates if len(c) >= 3]
-    # 시드 키워드 구성 단어도 필터에 포함
-    _filter_words.extend(list(seed_words))
-    _filter_words.append(seed_clean)
+    # 결과 DataFrame 생성
+    df = pd.DataFrame(all_results)
+    if "relKeyword" not in df.columns:
+        return []
 
-    def _is_relevant(kw):
-        return any(fw in kw for fw in _filter_words)
+    for col in ["monthlyPcQcCnt", "monthlyMobileQcCnt"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(
+                df[col].replace("< 10", 5).infer_objects(copy=False),
+                errors="coerce"
+            ).fillna(0).astype(int)
 
-    relevant_df = volume_df[volume_df["keyword"].apply(_is_relevant)].copy()
+    df["totalSearchCount"] = df["monthlyPcQcCnt"] + df["monthlyMobileQcCnt"]
+    df = df.rename(columns={"relKeyword": "keyword"})
 
-    # 불용어가 포함된 결과도 제거
-    relevant_df = relevant_df[~relevant_df["keyword"].isin(_STOPWORDS)]
+    # ════════════════════════════════════════
+    # 3단계: 관련성 필터링
+    # ════════════════════════════════════════
 
+    # 관련성 기준: 맥락 단어(3글자+) 또는 시드 단어가 포함된 키워드만
+    filter_words = [c for c in top_context if len(c) >= 3]
+    filter_words.extend(list(seed_words))
+    filter_words.append(seed_clean)
+
+    def is_relevant(kw):
+        return any(fw in kw for fw in filter_words)
+
+    df = df[df["keyword"].apply(is_relevant)].copy()
+
+    # 불용어 제거
+    df = df[~df["keyword"].isin(_STOPWORDS)]
     # 시드 키워드 자체 제거
-    relevant_df = relevant_df[relevant_df["keyword"] != seed_clean]
-
-    if relevant_df.empty:
-        return [
-            {"keyword": kw, "월간검색수": 0, "출현빈도": filtered[kw]}
-            for kw in top_candidates[:max_results]
-        ]
-
-    # 검색수 기준 정렬
-    result_df = (
-        relevant_df[["keyword", "totalSearchCount"]]
-        .rename(columns={"totalSearchCount": "월간검색수"})
-        .sort_values("월간검색수", ascending=False)
-        .head(max_results)
+    df = df[df["keyword"] != seed_clean]
+    # 중복 제거, 검색수 기준 정렬
+    df = (
+        df.groupby("keyword", as_index=False)["totalSearchCount"].max()
+        .sort_values("totalSearchCount", ascending=False)
     )
+
     result = []
-    for _, row in result_df.iterrows():
+    for _, row in df.head(max_results).iterrows():
+        kw = row["keyword"]
         result.append({
-            "keyword": row["keyword"],
-            "월간검색수": int(row["월간검색수"]),
-            "출현빈도": filtered.get(row["keyword"], 0),
+            "keyword": kw,
+            "월간검색수": int(row["totalSearchCount"]),
+            "출현빈도": context_words.get(kw, 0),
         })
     return result
