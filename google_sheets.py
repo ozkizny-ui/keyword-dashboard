@@ -74,6 +74,9 @@ def append_weekly_data(df: pd.DataFrame, week_label: str):
     else:
         col_idx = len(header)
         header.append(week_label)
+        # 시트 컬럼 수가 부족하면 자동 확장
+        if col_idx + 1 > ws.col_count:
+            ws.resize(cols=col_idx + 10)  # 여유분 10컬럼 추가
         ws.update_cell(1, col_idx + 1, week_label)
 
     cells_to_update = []
@@ -250,6 +253,9 @@ def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
         date_col_idx = header.index(week_label)
     else:
         date_col_idx = len(header)
+        # 시트 컬럼 수가 부족하면 자동 확장
+        if date_col_idx + 1 > ws.col_count:
+            ws.resize(cols=date_col_idx + 10)
         ws.update_cell(1, date_col_idx + 1, week_label)
 
     cells_to_update = []
