@@ -1793,28 +1793,22 @@ elif selected_menu == "🆕 신규키워드 개발":
 
             with st.spinner("네이버 검색광고 API에서 연관 키워드 수집 중..."):
                 try:
-                    import requests as _nk_req
                     import traceback as _nk_tb
-                    from naver_api import _ad_api_headers, fetch_search_volume as _nk_fetch
+                    from naver_api import fetch_search_volume as _nk_fetch
 
-                    # ── API 연결 진단 ──
-                    _nk_uri = "/keywordstool"
-                    _nk_url = config.NAVER_AD_BASE_URL + _nk_uri
-                    _nk_params = {
-                        "hintKeywords": ",".join(_nk_hint_keywords[:config.AD_API_BATCH_SIZE]),
-                        "showDetail": "1",
-                    }
-                    _nk_resp = _nk_req.get(
-                        _nk_url,
-                        headers=_ad_api_headers("GET", _nk_uri),
-                        params=_nk_params,
-                        timeout=30,
-                    )
+                    # 키워드 정제: 보이지 않는 특수문자, 전각 공백 등 제거
+                    _nk_clean_keywords = []
+                    for _kw in _nk_hint_keywords:
+                        # 전각 공백 → 반각, 앞뒤 공백 제거
+                        _cleaned = _kw.replace('\u3000', ' ').strip()
+                        if _cleaned:
+                            _nk_clean_keywords.append(_cleaned)
 
-                    if _nk_resp.status_code != 200:
-                        st.error(f"❌ API 오류 (HTTP {_nk_resp.status_code}): {_nk_resp.text[:300]}")
+                    if not _nk_clean_keywords:
+                        st.warning("유효한 키워드가 없습니다.")
                     else:
-                        _nk_raw = _nk_fetch(_nk_hint_keywords, filter_exact=False)
+                        st.caption(f"🔎 조회 키워드: `{_nk_clean_keywords}`")
+                        _nk_raw = _nk_fetch(_nk_clean_keywords, filter_exact=False)
                         if not _nk_raw.empty:
                             _nk_naver_df = (
                                 _nk_raw[["keyword", "totalSearchCount"]]
@@ -1824,7 +1818,7 @@ elif selected_menu == "🆕 신규키워드 개발":
                                 .reset_index(drop=True)
                             )
                         else:
-                            st.warning("API 응답은 정상이지만 결과가 없습니다. 다른 키워드로 시도해보세요.")
+                            st.warning("API 결과가 없습니다. 다른 키워드로 시도해보세요.")
                 except Exception as _nk_e:
                     st.error(f"네이버 API 오류: {_nk_e}")
                     st.code(_nk_tb.format_exc())
@@ -1908,8 +1902,24 @@ elif selected_menu == "⚙️ 데이터 관리":
                 keywords = load_keywords()
                 progress.info(f"⏳ 1/3 키워드 {len(keywords)}개 로드 완료")
 
-                # ── 사전 진단: 첫 배치로 API 연결 테스트 ──
+                # ── 사전 진단: 키 값 점검 + 첫 배치로 API 연결 테스트 ──
                 progress.info("⏳ 2/3 네이버 검색광고 API 연결 테스트 중...")
+
+                # 키 값 공백/줄바꿈 진단
+                _key_issues = []
+                for _kn, _kv in [
+                    ("NAVER_AD_API_LICENSE", config.NAVER_AD_API_LICENSE),
+                    ("NAVER_AD_SECRET_KEY", config.NAVER_AD_SECRET_KEY),
+                    ("NAVER_AD_CUSTOMER_ID", config.NAVER_AD_CUSTOMER_ID),
+                ]:
+                    if not _kv:
+                        _key_issues.append(f"  ❌ {_kn}: 비어있음")
+                    elif _kv != _kv.strip():
+                        _key_issues.append(f"  ⚠️ {_kn}: 앞뒤 공백/줄바꿈 발견 (길이 {len(_kv)} → strip 후 {len(_kv.strip())})")
+                    else:
+                        _key_issues.append(f"  ✅ {_kn}: OK (길이 {len(_kv)})")
+                st.code("\n".join(_key_issues), language=None)
+
                 import requests as _diag_req
                 from naver_api import _ad_api_headers
                 _diag_uri = "/keywordstool"

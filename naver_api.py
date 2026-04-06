@@ -57,7 +57,9 @@ def fetch_search_volume(keywords: list[str], filter_exact: bool = True, progress
     total_batches = (len(keywords) + config.AD_API_BATCH_SIZE - 1) // config.AD_API_BATCH_SIZE
 
     for i in range(0, len(keywords), config.AD_API_BATCH_SIZE):
-        batch = keywords[i : i + config.AD_API_BATCH_SIZE]
+        batch = [kw.strip() for kw in keywords[i : i + config.AD_API_BATCH_SIZE] if kw.strip()]
+        if not batch:
+            continue
         batch_num = i // config.AD_API_BATCH_SIZE + 1
         params = {
             "hintKeywords": ",".join(batch),
