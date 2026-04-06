@@ -353,3 +353,140 @@ def fetch_cafe_rank(keywords: list, progress_cb=None) -> pd.DataFrame:
         time.sleep(0.2)
 
     return pd.DataFrame(results)
+
+
+# ══════════════════════════════════════════════
+# 네이버 자동완성 & 연관검색어 수집
+# ══════════════════════════════════════════════
+
+def fetch_autocomplete(keyword: str) -> list[str]:
+    """
+    네이버 검색 자동완성 키워드를 수집합니다.
+    검색창에 입력할 때 드롭다운으로 나오는 추천 키워드입니다.
+    """
+    url = "https://ac.search.naver.com/nx/ac"
+    params = {
+        "q": keyword,
+        "con": "1",
+        "frm": "nv",
+        "ans": "2",
+        "r_format": "json",
+        "r_enc": "UTF-8",
+        "r_unicode": "0",
+        "t_koreng": "1",
+        "run": "2",
+        "rev": "4",
+        "q_enc": "UTF-8",
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            items = data.get("items", [])
+            results = []
+            for group in items:
+                for item in group:
+                    if isinstance(item, list) and len(item) > 0:
+                        results.append(item[0])
+                    elif isinstance(item, str):
+                        results.append(item)
+            return list(dict.fromkeys(results))  # 중복 제거, 순서 유지
+    except Exception as e:
+        print(f"[자동완성 오류] {keyword}: {e}")
+    return []
+
+
+def fetch_related_keywords(keyword: str) -> list[str]:
+    """
+    네이버 검색 결과 페이지의 '연관 검색어'를 수집합니다.
+    """
+    url = "https://search.naver.com/search.naver"
+    headers_req = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    }
+    try:
+        resp = requests.get(url, headers=headers_req, params={"query": keyword}, timeout=10)
+        if resp.status_code == 200:
+            import re
+            # 연관 검색어 영역에서 키워드 추출
+            pattern = r'<a[^>]*class="[^"]*keyword[^"]*"[^>]*>([^<]+)</a>'
+            found = re.findall(pattern, resp.text)
+            if found:
+                return list(dict.fromkeys(found))
+
+            # 대체 패턴: 연관검색어 JSON 데이터
+            pattern2 = r'"relatedKeyword"\s*:\s*"([^"]+)"'
+            found2 = re.findall(pattern2, resp.text)
+            if found2:
+                return list(dict.fromkeys(found2))
+    except Exception as e:
+        print(f"[연관검색어 오류] {keyword}: {e}")
+    return []
+
+
+def fetch_shopping_autocomplete(keyword: str) -> list[str]:
+    """
+    네이버 쇼핑 자동완성 키워드를 수집합니다.
+    """
+    url = "https://ac.shopping.naver.com/ac"
+    params = {
+        "q": keyword,
+        "frm": "shopping",
+        "r_format": "json",
+        "r_enc": "UTF-8",
+        "con": "1",
+        "ans": "2",
+        "t_koreng": "1",
+        "run": "2",
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            items = data.get("items", [])
+            results = []
+            for group in items:
+                for item in group:
+                    if isinstance(item, list) and len(item) > 0:
+                        results.append(item[0])
+                    elif isinstance(item, str):
+                        results.append(item)
+            return list(dict.fromkeys(results))
+    except Exception as e:
+        print(f"[쇼핑 자동완성 오류] {keyword}: {e}")
+    return []
+
+
+def expand_keywords(seed_keywords: list[str]) -> list[str]:
+    """
+    시드 키워드로부터 자동완성 + 연관검색어 + 쇼핑 자동완성을 통해
+    연관 키워드를 확장 수집합니다.
+    중복 제거 후 전체 리스트를 반환합니다.
+    """
+    all_keywords = set()
+
+    for kw in seed_keywords:
+        kw = kw.strip()
+        if not kw:
+            continue
+
+        # 네이버 통합 자동완성
+        ac = fetch_autocomplete(kw)
+        all_keywords.update(ac)
+        time.sleep(0.2)
+
+        # 네이버 쇼핑 자동완성
+        shop_ac = fetch_shopping_autocomplete(kw)
+        all_keywords.update(shop_ac)
+        time.sleep(0.2)
+
+        # 연관검색어
+        related = fetch_related_keywords(kw)
+        all_keywords.update(related)
+        time.sleep(0.3)
+
+    # 시드 키워드도 포함
+    all_keywords.update(seed_keywords)
+
+    return sorted(all_keywords)

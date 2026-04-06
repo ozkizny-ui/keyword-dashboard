@@ -1786,29 +1786,41 @@ elif selected_menu == "🆕 신규키워드 개발":
             _nk_cat_val = "" if _nk_category == "(선택 안함)" else _nk_category
             _nk_tgt_val = "" if _nk_target == "(선택 안함)" else _nk_target
 
-            # 쉼표로 구분된 제품명을 그대로 hint 키워드로 사용
-            _nk_hint_keywords = [k.strip() for k in _nk_product.split(",") if k.strip()]
+            # 쉼표, 줄바꿈으로 구분하여 시드 키워드 추출
+            import re
+            _nk_raw_tokens = [k.strip() for k in re.split(r'[,\n]+', _nk_product) if k.strip()]
+            _nk_seed_keywords = []
+            for _token in _nk_raw_tokens:
+                parts = _token.split()
+                if len(parts) > 1:
+                    _nk_seed_keywords.append("".join(parts))  # 붙여쓰기
+                    _nk_seed_keywords.extend(parts)
+                else:
+                    _nk_seed_keywords.append(_token)
+            _nk_seed_keywords = list(dict.fromkeys(_nk_seed_keywords))
 
             _nk_naver_df = pd.DataFrame()
 
-            with st.spinner("네이버 검색광고 API에서 연관 키워드 수집 중..."):
+            # ── 1단계: 자동완성/연관검색어로 키워드 확장 ──
+            with st.spinner("① 네이버 자동완성 & 연관검색어 수집 중..."):
                 try:
+                    from naver_api import expand_keywords
+                    _nk_expanded = expand_keywords(_nk_seed_keywords)
+                    st.caption(f"🔎 시드: `{_nk_seed_keywords}` → 확장: **{len(_nk_expanded)}개** 키워드 수집")
+                except Exception as _nk_e:
                     import traceback as _nk_tb
-                    from naver_api import fetch_search_volume as _nk_fetch
+                    st.warning(f"키워드 확장 실패: {_nk_e}")
+                    st.code(_nk_tb.format_exc())
+                    _nk_expanded = _nk_seed_keywords  # 확장 실패 시 시드 키워드만 사용
 
-                    # 키워드 정제: 보이지 않는 특수문자, 전각 공백 등 제거
-                    _nk_clean_keywords = []
-                    for _kw in _nk_hint_keywords:
-                        # 전각 공백 → 반각, 앞뒤 공백 제거
-                        _cleaned = _kw.replace('\u3000', ' ').strip()
-                        if _cleaned:
-                            _nk_clean_keywords.append(_cleaned)
+            # ── 2단계: 확장된 키워드의 검색수 조회 ──
+            if _nk_expanded:
+                with st.spinner(f"② 네이버 검색광고 API에서 {len(_nk_expanded)}개 키워드 검색수 조회 중..."):
+                    try:
+                        import traceback as _nk_tb
+                        from naver_api import fetch_search_volume as _nk_fetch
 
-                    if not _nk_clean_keywords:
-                        st.warning("유효한 키워드가 없습니다.")
-                    else:
-                        st.caption(f"🔎 조회 키워드: `{_nk_clean_keywords}`")
-                        _nk_raw = _nk_fetch(_nk_clean_keywords, filter_exact=False)
+                        _nk_raw = _nk_fetch(_nk_expanded, filter_exact=False)
                         if not _nk_raw.empty:
                             _nk_naver_df = (
                                 _nk_raw[["keyword", "totalSearchCount"]]
@@ -1818,10 +1830,11 @@ elif selected_menu == "🆕 신규키워드 개발":
                                 .reset_index(drop=True)
                             )
                         else:
-                            st.warning("API 결과가 없습니다. 다른 키워드로 시도해보세요.")
-                except Exception as _nk_e:
-                    st.error(f"네이버 API 오류: {_nk_e}")
-                    st.code(_nk_tb.format_exc())
+                            st.warning("검색수 데이터를 가져오지 못했습니다.")
+                    except Exception as _nk_e:
+                        import traceback as _nk_tb
+                        st.error(f"검색수 조회 오류: {_nk_e}")
+                        st.code(_nk_tb.format_exc())
 
             st.session_state["_nk_result"] = {
                 "product": _nk_product.strip(),
@@ -1841,6 +1854,7 @@ elif selected_menu == "🆕 신규키워드 개발":
         st.markdown("---")
         st.markdown("#### 🔗 네이버 연관 키워드")
         if not _nk_naver_df.empty:
+            st.success(f"총 **{len(_nk_naver_df)}개** 연관 키워드 발견 (자동완성 + 연관검색어 + 검색광고 API)")
             st.dataframe(
                 _nk_naver_df.style.format({"월간검색수": "{:,.0f}"}),
                 use_container_width=True, hide_index=True,
