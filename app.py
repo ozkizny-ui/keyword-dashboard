@@ -1801,6 +1801,14 @@ elif selected_menu == "🆕 신규키워드 개발":
 
             _nk_naver_df = pd.DataFrame()
 
+            # 원본 입력에서 필터링용 핵심 단어 추출
+            # "유아 목장갑" → ["유아목장갑", "유아", "목장갑"] 중 원본 토큰
+            _nk_filter_words = []
+            for _token in _nk_raw_tokens:
+                _nk_filter_words.append(_token.replace(" ", ""))  # 붙여쓰기
+                _nk_filter_words.extend(_token.split())           # 개별 단어
+            _nk_filter_words = list(dict.fromkeys(_nk_filter_words))
+
             with st.spinner("네이버 검색광고 API에서 연관 키워드 수집 중..."):
                 try:
                     import traceback as _nk_tb
@@ -1808,18 +1816,23 @@ elif selected_menu == "🆕 신규키워드 개발":
 
                     st.caption(f"🔎 조회 키워드: `{_nk_seed_keywords}`")
 
-                    # 검색광고 API의 연관 키워드 확장 활용 (filter_exact=False)
-                    # 시드 키워드를 모두 hintKeywords로 전달하면 API가 연관 키워드를 반환
                     _nk_raw = _nk_fetch(_nk_seed_keywords, filter_exact=False)
                     st.caption(f"📊 API 원본 응답: {len(_nk_raw)}행")
                     if not _nk_raw.empty:
-                        _nk_naver_df = (
+                        _nk_all = (
                             _nk_raw[["keyword", "totalSearchCount"]]
                             .rename(columns={"totalSearchCount": "월간검색수"})
                             .groupby("keyword", as_index=False)["월간검색수"].max()
                             .sort_values("월간검색수", ascending=False)
                             .reset_index(drop=True)
                         )
+
+                        # 관련성 필터: 키워드에 원본 입력 단어가 하나라도 포함된 것만
+                        def _is_relevant(kw):
+                            return any(w in kw for w in _nk_filter_words)
+
+                        _nk_naver_df = _nk_all[_nk_all["keyword"].apply(_is_relevant)].reset_index(drop=True)
+                        st.caption(f"🔍 관련성 필터 적용: {len(_nk_all)}개 → **{len(_nk_naver_df)}개**")
                     else:
                         st.warning("API 결과가 없습니다. 다른 키워드로 시도해보세요.")
                 except Exception as _nk_e:
