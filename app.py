@@ -20,6 +20,7 @@ from google_sheets import (
     read_rank_history, append_rank_history,
     save_setting, read_setting,
     save_new_keywords, read_new_keywords,
+    read_keyword_dict,
 )
 from ad_rank_parser import parse_ad_report, parse_ad_report_multiweek, summarize_by_keyword
 
@@ -418,6 +419,14 @@ def load_meta():
         return pd.read_csv(config.KEYWORDS_META_FILE, encoding="utf-8-sig")
     except FileNotFoundError:
         return pd.DataFrame(columns=["keyword", "계절", "카테고리", "성별/나이"])
+
+@st.cache_data(ttl=300)
+def load_keyword_dict():
+    """키워드사전 탭 로드 (Apps Script 수집 데이터)"""
+    try:
+        return read_keyword_dict()
+    except Exception:
+        return pd.DataFrame()
 
 
 def calc_changes(df: pd.DataFrame) -> pd.DataFrame:
@@ -1905,94 +1914,28 @@ elif selected_menu == "⚙️ 데이터 관리":
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("#### 🔄 수동 데이터 수집")
-        st.caption("버튼을 누르면 네이버 API에서 최신 데이터를 가져와 Google Sheets에 저장합니다.")
+        st.markdown("#### 📖 키워드사전 (Apps Script 수집)")
+        st.caption("Google Sheets의 '키워드사전' 탭에서 데이터를 읽어옵니다. 데이터 수집은 Apps Script에서 실행하세요.")
 
-        if st.button("🚀 지금 데이터 수집 실행", type="primary"):
-            progress = st.empty()
-            try:
-                import traceback
-                from fetch_weekly_data import load_keywords, get_week_label
-                from naver_api import fetch_search_volume, fetch_datalab_trend, estimate_weekly_search_volume
-                from google_sheets import append_weekly_data, save_trend_data
+        _kd = load_keyword_dict()
+        if _kd.empty:
+            st.warning("키워드사전 탭에 데이터가 없습니다. Apps Script로 수집을 실행하세요.")
+        else:
+            _meta_cols = [c for c in ["계절", "복종", "연령", "성별", "카테고리", "대표키워드", "키워드"] if c in _kd.columns]
+            _week_cols = [c for c in _kd.columns if c not in set(_meta_cols) | {"keyword"}]
+            st.success(f"✅ 키워드: **{len(_kd)}개** | 주차 데이터: **{len(_week_cols)}개**")
 
-                week_label = get_week_label()
+            # 최신 주차 미리보기
+            if _week_cols:
+                _latest = _week_cols[-1]
+                st.caption(f"최신 주차: `{_latest}`")
 
-                # ── 1단계: 키워드 로드 ──
-                progress.info("⏳ 1/3 키워드 파일 로드 중...")
-                keywords = load_keywords()
-                progress.info(f"⏳ 1/3 키워드 {len(keywords)}개 로드 완료")
+            st.dataframe(_kd[_meta_cols[:3] + ["keyword"] + _week_cols[-3:]].head(20) if _week_cols else _kd.head(20),
+                         use_container_width=True, hide_index=True)
 
-                # ── 사전 진단: 키 값 점검 + 첫 배치로 API 연결 테스트 ──
-                progress.info("⏳ 2/3 네이버 검색광고 API 연결 테스트 중...")
-
-                # 키 값 공백/줄바꿈 진단
-                _key_issues = []
-                for _kn, _kv in [
-                    ("NAVER_AD_API_LICENSE", config.NAVER_AD_API_LICENSE),
-                    ("NAVER_AD_SECRET_KEY", config.NAVER_AD_SECRET_KEY),
-                    ("NAVER_AD_CUSTOMER_ID", config.NAVER_AD_CUSTOMER_ID),
-                ]:
-                    if not _kv:
-                        _key_issues.append(f"  ❌ {_kn}: 비어있음")
-                    elif _kv != _kv.strip():
-                        _key_issues.append(f"  ⚠️ {_kn}: 앞뒤 공백/줄바꿈 발견 (길이 {len(_kv)} → strip 후 {len(_kv.strip())})")
-                    else:
-                        _key_issues.append(f"  ✅ {_kn}: OK (길이 {len(_kv)})")
-                st.code("\n".join(_key_issues), language=None)
-
-                import requests as _diag_req
-                from naver_api import _ad_api_headers
-                _diag_uri = "/keywordstool"
-                _diag_url = config.NAVER_AD_BASE_URL + _diag_uri
-                _diag_params = {"hintKeywords": keywords[0], "showDetail": "1"}
-                try:
-                    _diag_resp = _diag_req.get(
-                        _diag_url,
-                        headers=_ad_api_headers("GET", _diag_uri),
-                        params=_diag_params,
-                        timeout=15,
-                    )
-                    if _diag_resp.status_code != 200:
-                        st.error(f"❌ API 연결 실패 (HTTP {_diag_resp.status_code}): {_diag_resp.text[:300]}")
-                        st.stop()
-                except Exception as _diag_e:
-                    st.error(f"❌ API 서버 연결 불가: {_diag_e}")
-                    st.stop()
-
-                # ── 2단계: 검색수 조회 ──
-                progress.info(f"⏳ 2/3 네이버 검색광고 API 조회 중... ({len(keywords)}개 키워드)")
-                volume_df = fetch_search_volume(keywords)
-
-                if volume_df.empty:
-                    st.error("❌ 검색수 데이터를 가져오지 못했습니다. API 키를 확인하세요.")
-                else:
-                    # ── Google Sheets 저장 ──
-                    progress.info(f"⏳ 2/3 Google Sheets에 저장 중... ({week_label})")
-                    append_weekly_data(volume_df, week_label)
-                    progress.info(f"⏳ 2/3 주간 검색수 {len(volume_df)}개 키워드 저장 완료!")
-
-                    # ── 3단계: 트렌드 조회 ──
-                    progress.info(f"⏳ 3/3 데이터랩 트렌드 조회 중... (시간이 좀 걸립니다)")
-                    from datetime import datetime, timedelta, timezone
-                    _KST = timezone(timedelta(hours=9))
-                    end_date = datetime.now(_KST).strftime("%Y-%m-%d")
-                    start_date = (datetime.now(_KST) - timedelta(days=365)).strftime("%Y-%m-%d")
-                    trend_df = fetch_datalab_trend(keywords, start_date, end_date)
-
-                    if not trend_df.empty:
-                        estimated = estimate_weekly_search_volume(volume_df, trend_df)
-                        if not estimated.empty:
-                            save_trend_data(estimated)
-
-                    st.cache_data.clear()
-                    progress.empty()
-                    st.success(f"✅ 수집 완료! 주차: {week_label} | 키워드: {len(volume_df)}개 | 페이지를 새로고침(F5)하면 반영됩니다.")
-
-            except Exception as e:
-                progress.empty()
-                st.error(f"❌ 수집 실패: {e}")
-                st.code(traceback.format_exc())
+        if st.button("🔄 캐시 새로고침", type="primary"):
+            st.cache_data.clear()
+            st.success("캐시를 초기화했습니다. 페이지를 새로고침(F5)하면 최신 데이터가 반영됩니다.")
 
     with col2:
         st.markdown("#### 📋 키워드 메타 정보")
@@ -2011,6 +1954,7 @@ elif selected_menu == "⚙️ 데이터 관리":
         "키워드 파일": config.KEYWORDS_FILE,
         "메타 파일": config.KEYWORDS_META_FILE,
         "Google Sheet ID": config.SPREADSHEET_ID,
+        "키워드사전 시트": config.SHEET_NAME_KEYWORD_DICT,
         "변화율 알림 기준": f"±{config.CHANGE_ALERT_THRESHOLD}%",
         "네이버 검색광고 API": "✅ 설정됨" if config.NAVER_AD_API_LICENSE else "❌ 미설정",
         "네이버 데이터랩 API": "✅ 설정됨" if config.NAVER_CLIENT_ID else "❌ 미설정",

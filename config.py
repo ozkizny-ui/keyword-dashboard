@@ -16,8 +16,9 @@ except Exception:
 
 
 def _env(key: str, default: str = "") -> str:
-    """os.getenv 우선, 없으면 st.secrets에서 읽기."""
-    return os.getenv(key) or _secrets.get(key, default)
+    """os.getenv 우선, 없으면 st.secrets에서 읽기. 앞뒤 공백/줄바꿈 자동 제거."""
+    val = os.getenv(key) or _secrets.get(key, default)
+    return val.strip() if isinstance(val, str) else val
 
 
 # ──────────────────────────────────────────────
@@ -53,6 +54,7 @@ SHEET_NAME_RANK_BLOG      = "블로그순위"
 SHEET_NAME_RANK_CAFE      = "카페순위"   # 카페 순위 이력 시트
 SHEET_NAME_SETTINGS       = "설정"
 SHEET_NAME_NEW_KEYWORDS   = "신규키워드"
+SHEET_NAME_KEYWORD_DICT   = "키워드사전"  # Apps Script 키워드사전 탭
 
 # ──────────────────────────────────────────────
 # 프로젝트 설정

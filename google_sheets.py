@@ -196,6 +196,60 @@ def read_trend_data() -> pd.DataFrame:
     return df
 
 
+def read_keyword_dict() -> pd.DataFrame:
+    """
+    Google Sheets '키워드사전' 탭을 읽어옵니다.
+    Apps Script가 수집한 키워드별 주간 검색수 + 메타 정보.
+    컬럼: 계절, 복종, 연령, 성별, 카테고리, 대표키워드, 키워드, 주차1, 주차2, ...
+    """
+    client = _get_client()
+    spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
+    try:
+        ws = spreadsheet.worksheet(config.SHEET_NAME_KEYWORD_DICT)
+    except gspread.WorksheetNotFound:
+        return pd.DataFrame()
+
+    data = ws.get_all_values()
+    if len(data) < 2:
+        return pd.DataFrame()
+
+    header = data[0]
+    n_cols = len(header)
+    rows = [row[:n_cols] + [""] * (n_cols - len(row)) for row in data[1:]]
+
+    # 중복 컬럼명 자동 rename
+    seen: dict = {}
+    deduped_header = []
+    for col in header:
+        if col in seen:
+            seen[col] += 1
+            deduped_header.append(f"{col}_{seen[col]}")
+        else:
+            seen[col] = 1
+            deduped_header.append(col)
+
+    df = pd.DataFrame(rows, columns=deduped_header)
+
+    # 키워드 컬럼 정규화
+    if "키워드" in df.columns:
+        df["키워드"] = df["키워드"].str.strip()
+    # "keyword" 별칭 추가 (대시보드 호환)
+    if "키워드" in df.columns and "keyword" not in df.columns:
+        df["keyword"] = df["키워드"]
+
+    # 메타 컬럼 식별 (주차 데이터가 아닌 컬럼)
+    meta_cols = {"계절", "복종", "연령", "성별", "카테고리", "대표키워드", "키워드", "keyword"}
+    # 주차 컬럼의 숫자 변환
+    for col in df.columns:
+        if col not in meta_cols:
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(",", "", regex=False),
+                errors="coerce"
+            ).fillna(0).astype(int)
+
+    return df
+
+
 def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
     """
     순위 이력을 계절 | 품목 | keyword | week1 | week2 | ... 구조로 누적 저장합니다.
