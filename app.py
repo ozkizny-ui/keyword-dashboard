@@ -1815,14 +1815,17 @@ elif selected_menu == "🆕 신규키워드 개발":
                         _all_suggestions.extend(_suggestions)
 
                     if _all_suggestions:
+                        _nk_naver_df = pd.DataFrame(_all_suggestions)
+                        # 중복 키워드 병합: 검색수는 max, 빈도는 sum
+                        _agg = {"월간검색수": "max"}
+                        if "출현빈도" in _nk_naver_df.columns:
+                            _agg["출현빈도"] = "sum"
                         _nk_naver_df = (
-                            pd.DataFrame(_all_suggestions)
-                            .groupby("keyword", as_index=False)["월간검색수"].max()
+                            _nk_naver_df.groupby("keyword", as_index=False).agg(_agg)
                             .sort_values("월간검색수", ascending=False)
-                            .drop_duplicates(subset="keyword")
                             .reset_index(drop=True)
                         )
-                        st.caption(f"📊 추천 키워드: **{len(_nk_naver_df)}개** (블로그/쇼핑 제목 분석 기반)")
+                        st.caption(f"📊 추천 키워드: **{len(_nk_naver_df)}개** (블로그/쇼핑 검색 결과 분석)")
                     else:
                         st.warning("연관 키워드를 찾지 못했습니다. 다른 키워드로 시도해보세요.")
                 except Exception as _nk_e:
@@ -1848,8 +1851,11 @@ elif selected_menu == "🆕 신규키워드 개발":
         st.markdown("#### 🔗 네이버 연관 키워드")
         if not _nk_naver_df.empty:
             st.success(f"총 **{len(_nk_naver_df)}개** 연관 키워드 발견")
+            _fmt = {"월간검색수": "{:,.0f}"}
+            if "출현빈도" in _nk_naver_df.columns:
+                _fmt["출현빈도"] = "{:,.0f}"
             st.dataframe(
-                _nk_naver_df.style.format({"월간검색수": "{:,.0f}"}),
+                _nk_naver_df.style.format(_fmt),
                 use_container_width=True, hide_index=True,
             )
         else:

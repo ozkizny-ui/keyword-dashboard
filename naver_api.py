@@ -359,21 +359,39 @@ def fetch_cafe_rank(keywords: list, progress_cb=None) -> pd.DataFrame:
 # 네이버 검색 API 기반 연관 키워드 추천
 # ══════════════════════════════════════════════
 
+# 불용어: 검색 결과에 자주 나오지만 키워드로 의미 없는 단어
+_STOPWORDS = {
+    "추천", "후기", "리뷰", "구매", "가격", "비교", "순위", "인기", "최저가",
+    "할인", "무료", "배송", "당일", "오늘", "내일", "사용", "방법", "정보",
+    "네이버", "블로그", "카페", "포스팅", "공유", "이벤트", "소개", "안내",
+    "사진", "영상", "동영상", "이미지", "링크", "클릭", "더보기", "자세히",
+    "좋아요", "댓글", "공감", "구독", "팔로우", "스토어", "스마트", "브랜드",
+    "최고", "최신", "진짜", "완전", "정말", "너무", "매우", "아주", "엄청",
+    "ㅋㅋ", "ㅎㅎ", "하하", "다른", "이런", "그런", "어떤", "모든",
+    "준비", "필수", "필요", "가능", "확인", "선택", "주문", "결제",
+    "올해", "작년", "이번", "지난", "다음", "요즘", "최근",
+}
+
+
 def suggest_related_keywords(
     seed_keyword: str,
     max_results: int = 15,
 ) -> list[dict]:
     """
     네이버 공식 검색 API(블로그 + 쇼핑)를 활용하여
-    시드 키워드와 관련된 핵심 키워드를 추천합니다.
+    시드 키워드와 관련된 '사용 맥락' 키워드를 추천합니다.
+
+    예) "유아목장갑" → 갯벌체험, 고구마캐기, 글램핑, 오징어잡이체험 등
 
     방법:
-    1. 블로그/쇼핑 검색 결과 제목에서 명사 키워드 추출
-    2. 시드 키워드 단어가 포함된 2~4글자 조합만 필터링
-    3. 검색광고 API로 검색수 조회
-    4. 검색수 기준 정렬하여 상위 반환
+    1. 블로그 검색 결과 제목 + 설명에서 키워드 추출
+    2. 쇼핑 검색 결과 상품명에서 키워드 추출
+    3. 불용어/시드 키워드 자체 제거
+    4. 빈도 기준 상위 후보 선정
+    5. 검색광고 API로 검색수 조회
+    6. 검색수 기준 정렬하여 반환
 
-    반환: [{"keyword": str, "월간검색수": int}, ...]
+    반환: [{"keyword": str, "월간검색수": int, "출현빈도": int}, ...]
     """
     import re
     from collections import Counter
@@ -388,30 +406,30 @@ def suggest_related_keywords(
     }
 
     seed_clean = seed_keyword.replace(" ", "")
-    # 시드에서 핵심 단어 추출 (2글자 이상 한글 단어)
-    seed_words = [w for w in re.findall(r'[가-힣]{2,}', seed_clean)]
-    if not seed_words:
-        seed_words = [seed_clean]
+    seed_words = set(re.findall(r'[가-힣]{2,}', seed_clean))
 
-    all_titles = []
+    all_texts = []
 
-    # ── 블로그 검색 (상위 50개 제목 수집) ──
-    try:
-        resp = requests.get(
-            "https://openapi.naver.com/v1/search/blog.json",
-            headers=headers,
-            params={"query": seed_keyword, "display": 50, "sort": "sim"},
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            for item in resp.json().get("items", []):
-                title = re.sub(r'<[^>]+>', '', item.get("title", ""))
-                all_titles.append(title)
-    except Exception as e:
-        print(f"[블로그 검색 오류] {e}")
-    time.sleep(0.2)
+    # ── 블로그 검색 (제목 + 설명 수집) ──
+    for start in [1, 51]:  # 100개 수집 (50 × 2)
+        try:
+            resp = requests.get(
+                "https://openapi.naver.com/v1/search/blog.json",
+                headers=headers,
+                params={"query": seed_keyword, "display": 50, "start": start, "sort": "sim"},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                for item in resp.json().get("items", []):
+                    title = re.sub(r'<[^>]+>', '', item.get("title", ""))
+                    desc = re.sub(r'<[^>]+>', '', item.get("description", ""))
+                    all_texts.append(title)
+                    all_texts.append(desc)
+        except Exception as e:
+            print(f"[블로그 검색 오류] {e}")
+        time.sleep(0.2)
 
-    # ── 쇼핑 검색 (상위 50개 제목 수집) ──
+    # ── 쇼핑 검색 (상품명 수집) ──
     try:
         resp = requests.get(
             "https://openapi.naver.com/v1/search/shop.json",
@@ -422,69 +440,79 @@ def suggest_related_keywords(
         if resp.status_code == 200:
             for item in resp.json().get("items", []):
                 title = re.sub(r'<[^>]+>', '', item.get("title", ""))
-                all_titles.append(title)
+                all_texts.append(title)
     except Exception as e:
         print(f"[쇼핑 검색 오류] {e}")
     time.sleep(0.2)
 
-    if not all_titles:
+    if not all_texts:
         return []
 
-    # ── 제목에서 키워드 후보 추출 ──
-    # 한글 2~6글자 단어 추출
-    word_counter = Counter()
-    for title in all_titles:
-        words = re.findall(r'[가-힣]{2,6}', title)
-        word_counter.update(words)
+    # ── 텍스트에서 키워드 후보 추출 ──
+    candidate_counter = Counter()
 
-    # 2글자 이상 단어를 조합하여 복합 키워드 후보 생성
-    compound_counter = Counter()
-    for title in all_titles:
-        words = re.findall(r'[가-힣]{2,}', title)
-        # 인접 단어 2개 조합
+    for text in all_texts:
+        # 한글 단어 추출 (2~8글자)
+        words = re.findall(r'[가-힣]{2,8}', text)
+
+        # 단일 단어
+        for w in words:
+            candidate_counter[w] += 1
+
+        # 인접 2단어 조합 (복합 키워드)
         for i in range(len(words) - 1):
             compound = words[i] + words[i + 1]
-            if 3 <= len(compound) <= 10:
-                compound_counter[compound] += 1
-        # 단일 단어도 포함
-        for w in words:
-            if 2 <= len(w) <= 8:
-                compound_counter[w] += 1
+            if 4 <= len(compound) <= 10:
+                candidate_counter[compound] += 1
 
-    # ── 관련성 필터링 ──
-    # 시드 키워드의 단어가 하나라도 포함된 후보만 유지
-    relevant_candidates = {}
-    for candidate, count in compound_counter.items():
-        if count < 2:  # 최소 2회 이상 등장
+    # ── 필터링 ──
+    filtered = {}
+    for candidate, count in candidate_counter.items():
+        # 최소 3회 이상 등장
+        if count < 3:
             continue
-        if any(sw in candidate for sw in seed_words) or seed_clean in candidate:
-            relevant_candidates[candidate] = count
+        # 불용어 제거
+        if candidate in _STOPWORDS:
+            continue
+        # 1글자 제거 (이미 2글자 이상이지만 안전장치)
+        if len(candidate) < 2:
+            continue
+        # 시드 키워드 자체와 동일한 것 제거 (시드 구성 단어도 제거)
+        if candidate == seed_clean:
+            continue
+        if candidate in seed_words:
+            continue
+        filtered[candidate] = count
 
-    # 시드 키워드 자체도 포함
-    relevant_candidates[seed_clean] = 999
-
-    if not relevant_candidates:
+    if not filtered:
         return []
 
-    # 빈도 기준 상위 후보 선정 (검색수 조회할 양)
-    top_candidates = sorted(relevant_candidates.keys(),
-                            key=lambda k: relevant_candidates[k], reverse=True)[:max_results * 3]
+    # 빈도 기준 상위 후보 (검색수 조회할 양 — 넉넉히)
+    top_candidates = sorted(filtered.keys(),
+                            key=lambda k: filtered[k], reverse=True)[:max_results * 4]
 
     # ── 검색수 조회 ──
     volume_df = fetch_search_volume(top_candidates, filter_exact=True)
 
     if volume_df.empty:
-        # 검색수 없어도 빈도 기준으로 반환
+        # 검색수 조회 실패 시 빈도 기준으로 반환
         return [
-            {"keyword": kw, "월간검색수": 0}
+            {"keyword": kw, "월간검색수": 0, "출현빈도": filtered[kw]}
             for kw in top_candidates[:max_results]
         ]
 
-    result = (
+    # 검색수가 있는 키워드만 선별, 검색수 기준 정렬
+    result_df = (
         volume_df[["keyword", "totalSearchCount"]]
         .rename(columns={"totalSearchCount": "월간검색수"})
         .sort_values("월간검색수", ascending=False)
         .head(max_results)
-        .to_dict("records")
     )
+    result = []
+    for _, row in result_df.iterrows():
+        result.append({
+            "keyword": row["keyword"],
+            "월간검색수": int(row["월간검색수"]),
+            "출현빈도": filtered.get(row["keyword"], 0),
+        })
     return result
