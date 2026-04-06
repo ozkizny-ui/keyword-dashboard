@@ -1787,21 +1787,18 @@ elif selected_menu == "🆕 신규키워드 개발":
             _nk_tgt_val = "" if _nk_target == "(선택 안함)" else _nk_target
 
             # 쉼표, 줄바꿈으로 구분하여 시드 키워드 추출
+            # "유아 목장갑" → ["유아목장갑"] (붙여쓰기만, 개별 단어 분리 안함)
+            # "유아목장갑, 아기장갑" → ["유아목장갑", "아기장갑"]
             import re
             _nk_raw_tokens = [k.strip() for k in re.split(r'[,\n]+', _nk_product) if k.strip()]
             _nk_seed_keywords = []
             for _token in _nk_raw_tokens:
-                parts = _token.split()
-                if len(parts) > 1:
-                    _nk_seed_keywords.append("".join(parts))  # 붙여쓰기
-                    _nk_seed_keywords.extend(parts)
-                else:
-                    _nk_seed_keywords.append(_token)
+                _nk_seed_keywords.append(_token.replace(" ", ""))  # 공백 제거한 버전만
             _nk_seed_keywords = list(dict.fromkeys(_nk_seed_keywords))
 
             _nk_naver_df = pd.DataFrame()
 
-            with st.spinner("네이버 블로그/쇼핑 검색 결과에서 연관 키워드 추출 중..."):
+            with st.spinner("네이버 블로그/카페/쇼핑 검색 결과에서 연관 키워드 추출 중..."):
                 try:
                     import traceback as _nk_tb
                     from naver_api import suggest_related_keywords
