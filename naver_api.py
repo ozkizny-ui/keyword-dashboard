@@ -499,8 +499,14 @@ def suggest_related_keywords(
         # 인접 2단어 조합 (복합 키워드)
         for i in range(len(words) - 1):
             compound = words[i] + words[i + 1]
-            if 4 <= len(compound) <= 10:
+            if 4 <= len(compound) <= 12:
                 candidate_counter[compound] += 1
+
+        # 인접 3단어 조합 (긴 복합 키워드: 미끄럼방지장갑 등)
+        for i in range(len(words) - 2):
+            compound3 = words[i] + words[i + 1] + words[i + 2]
+            if 6 <= len(compound3) <= 14:
+                candidate_counter[compound3] += 1
 
     # ── 필터링 ──
     filtered = {}
@@ -524,12 +530,12 @@ def suggest_related_keywords(
     if not filtered:
         return []
 
-    # 빈도 기준 정렬
+    # 빈도 기준 상위 30개 후보만 (API 호출 최적화)
     top_candidates = sorted(filtered.keys(),
-                            key=lambda k: filtered[k], reverse=True)
+                            key=lambda k: filtered[k], reverse=True)[:30]
 
-    # ── 검색수 조회 ──
-    volume_df = fetch_search_volume(top_candidates, filter_exact=True)
+    # ── 검색수 조회 (filter_exact=False → 후보 기반 연관 키워드도 포함) ──
+    volume_df = fetch_search_volume(top_candidates, filter_exact=False)
 
     if volume_df.empty:
         # 검색수 조회 실패 시 빈도 기준으로 반환
@@ -538,9 +544,34 @@ def suggest_related_keywords(
             for kw in top_candidates[:max_results]
         ]
 
-    # 검색수가 있는 키워드만 선별, 검색수 기준 정렬
+    # 결과 필터링: 후보 단어 중 하나라도 포함된 키워드만 유지
+    # (예: 후보 "갯벌" → "갯벌체험", "갯벌장갑" 등 포함)
+    # 하지만 너무 범용적인 2글자 후보는 필터 기준에서 제외
+    _filter_words = [c for c in top_candidates if len(c) >= 3]
+    # 시드 키워드 구성 단어도 필터에 포함
+    _filter_words.extend(list(seed_words))
+    _filter_words.append(seed_clean)
+
+    def _is_relevant(kw):
+        return any(fw in kw for fw in _filter_words)
+
+    relevant_df = volume_df[volume_df["keyword"].apply(_is_relevant)].copy()
+
+    # 불용어가 포함된 결과도 제거
+    relevant_df = relevant_df[~relevant_df["keyword"].isin(_STOPWORDS)]
+
+    # 시드 키워드 자체 제거
+    relevant_df = relevant_df[relevant_df["keyword"] != seed_clean]
+
+    if relevant_df.empty:
+        return [
+            {"keyword": kw, "월간검색수": 0, "출현빈도": filtered[kw]}
+            for kw in top_candidates[:max_results]
+        ]
+
+    # 검색수 기준 정렬
     result_df = (
-        volume_df[["keyword", "totalSearchCount"]]
+        relevant_df[["keyword", "totalSearchCount"]]
         .rename(columns={"totalSearchCount": "월간검색수"})
         .sort_values("월간검색수", ascending=False)
         .head(max_results)
