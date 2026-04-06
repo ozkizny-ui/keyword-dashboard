@@ -356,137 +356,135 @@ def fetch_cafe_rank(keywords: list, progress_cb=None) -> pd.DataFrame:
 
 
 # ══════════════════════════════════════════════
-# 네이버 자동완성 & 연관검색어 수집
+# 네이버 검색 API 기반 연관 키워드 추천
 # ══════════════════════════════════════════════
 
-def fetch_autocomplete(keyword: str) -> list[str]:
+def suggest_related_keywords(
+    seed_keyword: str,
+    max_results: int = 15,
+) -> list[dict]:
     """
-    네이버 검색 자동완성 키워드를 수집합니다.
-    검색창에 입력할 때 드롭다운으로 나오는 추천 키워드입니다.
+    네이버 공식 검색 API(블로그 + 쇼핑)를 활용하여
+    시드 키워드와 관련된 핵심 키워드를 추천합니다.
+
+    방법:
+    1. 블로그/쇼핑 검색 결과 제목에서 명사 키워드 추출
+    2. 시드 키워드 단어가 포함된 2~4글자 조합만 필터링
+    3. 검색광고 API로 검색수 조회
+    4. 검색수 기준 정렬하여 상위 반환
+
+    반환: [{"keyword": str, "월간검색수": int}, ...]
     """
-    url = "https://ac.search.naver.com/nx/ac"
-    params = {
-        "q": keyword,
-        "con": "1",
-        "frm": "nv",
-        "ans": "2",
-        "r_format": "json",
-        "r_enc": "UTF-8",
-        "r_unicode": "0",
-        "t_koreng": "1",
-        "run": "2",
-        "rev": "4",
-        "q_enc": "UTF-8",
+    import re
+    from collections import Counter
+
+    if not config.NAVER_CLIENT_ID or not config.NAVER_CLIENT_SECRET:
+        print("[연관키워드] 네이버 검색 API 키가 설정되지 않았습니다.")
+        return []
+
+    headers = {
+        "X-Naver-Client-Id": config.NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": config.NAVER_CLIENT_SECRET,
     }
+
+    seed_clean = seed_keyword.replace(" ", "")
+    # 시드에서 핵심 단어 추출 (2글자 이상 한글 단어)
+    seed_words = [w for w in re.findall(r'[가-힣]{2,}', seed_clean)]
+    if not seed_words:
+        seed_words = [seed_clean]
+
+    all_titles = []
+
+    # ── 블로그 검색 (상위 50개 제목 수집) ──
     try:
-        resp = requests.get(url, params=params, timeout=10)
+        resp = requests.get(
+            "https://openapi.naver.com/v1/search/blog.json",
+            headers=headers,
+            params={"query": seed_keyword, "display": 50, "sort": "sim"},
+            timeout=10,
+        )
         if resp.status_code == 200:
-            data = resp.json()
-            items = data.get("items", [])
-            results = []
-            for group in items:
-                for item in group:
-                    if isinstance(item, list) and len(item) > 0:
-                        results.append(item[0])
-                    elif isinstance(item, str):
-                        results.append(item)
-            return list(dict.fromkeys(results))  # 중복 제거, 순서 유지
+            for item in resp.json().get("items", []):
+                title = re.sub(r'<[^>]+>', '', item.get("title", ""))
+                all_titles.append(title)
     except Exception as e:
-        print(f"[자동완성 오류] {keyword}: {e}")
-    return []
+        print(f"[블로그 검색 오류] {e}")
+    time.sleep(0.2)
 
-
-def fetch_related_keywords(keyword: str) -> list[str]:
-    """
-    네이버 검색 결과 페이지의 '연관 검색어'를 수집합니다.
-    """
-    url = "https://search.naver.com/search.naver"
-    headers_req = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    }
+    # ── 쇼핑 검색 (상위 50개 제목 수집) ──
     try:
-        resp = requests.get(url, headers=headers_req, params={"query": keyword}, timeout=10)
+        resp = requests.get(
+            "https://openapi.naver.com/v1/search/shop.json",
+            headers=headers,
+            params={"query": seed_keyword, "display": 50, "sort": "sim"},
+            timeout=10,
+        )
         if resp.status_code == 200:
-            import re
-            # 연관 검색어 영역에서 키워드 추출
-            pattern = r'<a[^>]*class="[^"]*keyword[^"]*"[^>]*>([^<]+)</a>'
-            found = re.findall(pattern, resp.text)
-            if found:
-                return list(dict.fromkeys(found))
-
-            # 대체 패턴: 연관검색어 JSON 데이터
-            pattern2 = r'"relatedKeyword"\s*:\s*"([^"]+)"'
-            found2 = re.findall(pattern2, resp.text)
-            if found2:
-                return list(dict.fromkeys(found2))
+            for item in resp.json().get("items", []):
+                title = re.sub(r'<[^>]+>', '', item.get("title", ""))
+                all_titles.append(title)
     except Exception as e:
-        print(f"[연관검색어 오류] {keyword}: {e}")
-    return []
+        print(f"[쇼핑 검색 오류] {e}")
+    time.sleep(0.2)
 
+    if not all_titles:
+        return []
 
-def fetch_shopping_autocomplete(keyword: str) -> list[str]:
-    """
-    네이버 쇼핑 자동완성 키워드를 수집합니다.
-    """
-    url = "https://ac.shopping.naver.com/ac"
-    params = {
-        "q": keyword,
-        "frm": "shopping",
-        "r_format": "json",
-        "r_enc": "UTF-8",
-        "con": "1",
-        "ans": "2",
-        "t_koreng": "1",
-        "run": "2",
-    }
-    try:
-        resp = requests.get(url, params=params, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            items = data.get("items", [])
-            results = []
-            for group in items:
-                for item in group:
-                    if isinstance(item, list) and len(item) > 0:
-                        results.append(item[0])
-                    elif isinstance(item, str):
-                        results.append(item)
-            return list(dict.fromkeys(results))
-    except Exception as e:
-        print(f"[쇼핑 자동완성 오류] {keyword}: {e}")
-    return []
+    # ── 제목에서 키워드 후보 추출 ──
+    # 한글 2~6글자 단어 추출
+    word_counter = Counter()
+    for title in all_titles:
+        words = re.findall(r'[가-힣]{2,6}', title)
+        word_counter.update(words)
 
+    # 2글자 이상 단어를 조합하여 복합 키워드 후보 생성
+    compound_counter = Counter()
+    for title in all_titles:
+        words = re.findall(r'[가-힣]{2,}', title)
+        # 인접 단어 2개 조합
+        for i in range(len(words) - 1):
+            compound = words[i] + words[i + 1]
+            if 3 <= len(compound) <= 10:
+                compound_counter[compound] += 1
+        # 단일 단어도 포함
+        for w in words:
+            if 2 <= len(w) <= 8:
+                compound_counter[w] += 1
 
-def expand_keywords(seed_keywords: list[str]) -> list[str]:
-    """
-    시드 키워드로부터 자동완성 + 연관검색어 + 쇼핑 자동완성을 통해
-    연관 키워드를 확장 수집합니다.
-    중복 제거 후 전체 리스트를 반환합니다.
-    """
-    all_keywords = set()
-
-    for kw in seed_keywords:
-        kw = kw.strip()
-        if not kw:
+    # ── 관련성 필터링 ──
+    # 시드 키워드의 단어가 하나라도 포함된 후보만 유지
+    relevant_candidates = {}
+    for candidate, count in compound_counter.items():
+        if count < 2:  # 최소 2회 이상 등장
             continue
+        if any(sw in candidate for sw in seed_words) or seed_clean in candidate:
+            relevant_candidates[candidate] = count
 
-        # 네이버 통합 자동완성
-        ac = fetch_autocomplete(kw)
-        all_keywords.update(ac)
-        time.sleep(0.2)
+    # 시드 키워드 자체도 포함
+    relevant_candidates[seed_clean] = 999
 
-        # 네이버 쇼핑 자동완성
-        shop_ac = fetch_shopping_autocomplete(kw)
-        all_keywords.update(shop_ac)
-        time.sleep(0.2)
+    if not relevant_candidates:
+        return []
 
-        # 연관검색어
-        related = fetch_related_keywords(kw)
-        all_keywords.update(related)
-        time.sleep(0.3)
+    # 빈도 기준 상위 후보 선정 (검색수 조회할 양)
+    top_candidates = sorted(relevant_candidates.keys(),
+                            key=lambda k: relevant_candidates[k], reverse=True)[:max_results * 3]
 
-    # 시드 키워드도 포함
-    all_keywords.update(seed_keywords)
+    # ── 검색수 조회 ──
+    volume_df = fetch_search_volume(top_candidates, filter_exact=True)
 
-    return sorted(all_keywords)
+    if volume_df.empty:
+        # 검색수 없어도 빈도 기준으로 반환
+        return [
+            {"keyword": kw, "월간검색수": 0}
+            for kw in top_candidates[:max_results]
+        ]
+
+    result = (
+        volume_df[["keyword", "totalSearchCount"]]
+        .rename(columns={"totalSearchCount": "월간검색수"})
+        .sort_values("월간검색수", ascending=False)
+        .head(max_results)
+        .to_dict("records")
+    )
+    return result
