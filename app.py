@@ -1899,11 +1899,26 @@ elif selected_menu == "🆕 신규키워드 개발":
         st.markdown("#### 🔗 네이버 연관 키워드")
         if not _nk_naver_df.empty:
             st.success(f"총 **{len(_nk_naver_df)}개** 연관 키워드 발견")
+
+            # 정렬 옵션
+            _sort_by = st.radio(
+                "정렬 기준",
+                ["출현빈도 순 (관련성)", "검색수 순 (트래픽)"],
+                index=0,
+                horizontal=True,
+                key="nk_sort",
+            )
+            if _sort_by == "검색수 순 (트래픽)":
+                _nk_display = _nk_naver_df.sort_values("월간검색수", ascending=False).reset_index(drop=True)
+            else:
+                _sort_cols = ["출현빈도", "월간검색수"] if "출현빈도" in _nk_naver_df.columns else ["월간검색수"]
+                _nk_display = _nk_naver_df.sort_values(_sort_cols, ascending=False).reset_index(drop=True)
+
             _fmt = {"월간검색수": "{:,.0f}"}
-            if "출현빈도" in _nk_naver_df.columns:
+            if "출현빈도" in _nk_display.columns:
                 _fmt["출현빈도"] = "{:,.0f}"
             st.dataframe(
-                _nk_naver_df.style.format(_fmt),
+                _nk_display.style.format(_fmt),
                 use_container_width=True, hide_index=True,
             )
         else:

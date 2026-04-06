@@ -613,20 +613,45 @@ def suggest_related_keywords(
     df = df[~df["keyword"].isin(_STOPWORDS)]
     # 시드 키워드 자체 제거
     df = df[df["keyword"] != seed_clean]
-    # 중복 제거, 검색수 기준 정렬
-    df = (
-        df.groupby("keyword", as_index=False)["totalSearchCount"].max()
-        .sort_values("totalSearchCount", ascending=False)
-    )
+    # 중복 제거
+    df = df.groupby("keyword", as_index=False)["totalSearchCount"].max()
 
-    result = []
-    for _, row in df.head(max_results).iterrows():
-        kw = row["keyword"]
-        result.append({
+    # ════════════════════════════════════════
+    # 4단계: 맥락 단어 강제 포함 + 검색수 병합
+    # ════════════════════════════════════════
+
+    # API 결과에서 키워드→검색수 매핑
+    vol_map = dict(zip(df["keyword"], df["totalSearchCount"]))
+
+    # 맥락 단어 중 검색수가 확인된 것 + API 결과에 없지만 맥락 단어인 것 모두 포함
+    # 맥락 단어 자체도 검색수를 조회해볼 가치가 있음 (이미 hintKeywords로 보냈으므로 vol_map에 있을 수 있음)
+    all_keywords = {}
+
+    # API 연관 키워드 결과
+    for kw, vol in vol_map.items():
+        freq = context_words.get(kw, 0)
+        all_keywords[kw] = {"월간검색수": int(vol), "출현빈도": freq}
+
+    # 맥락 단어 강제 포함 (API 결과에 없어도)
+    for ctx_kw in top_context:
+        if ctx_kw in _STOPWORDS or ctx_kw == seed_clean or ctx_kw in seed_words:
+            continue
+        if ctx_kw not in all_keywords:
+            # API 결과에 없는 맥락 단어 — 검색수 0이지만 출현빈도로 가치 판단
+            all_keywords[ctx_kw] = {"월간검색수": vol_map.get(ctx_kw, 0), "출현빈도": context_words.get(ctx_kw, 0)}
+
+    # 결과 정렬: 출현빈도 × 가중치 + 검색수 기준 복합 정렬
+    result_list = []
+    for kw, info in all_keywords.items():
+        result_list.append({
             "keyword": kw,
-            "월간검색수": int(row["totalSearchCount"]),
-            "출현빈도": context_words.get(kw, 0),
+            "월간검색수": info["월간검색수"],
+            "출현빈도": info["출현빈도"],
         })
+
+    # 출현빈도 우선, 같으면 검색수 순
+    result_list.sort(key=lambda x: (x["출현빈도"], x["월간검색수"]), reverse=True)
+    result = result_list[:max_results]
 
     # 디버그 정보: 맥락 단어 상위 50개와 빈도
     debug_context = [(kw, context_words[kw]) for kw in top_context]
