@@ -416,8 +416,9 @@ def save_new_keywords(rows: list[dict]):
     existing = ws.get_all_values()
     header = ["날짜", "제품명", "카테고리", "타겟", "키워드", "출처", "월간검색수"]
 
-    if not existing:
-        ws.update(range_name="A1", values=[header])
+    # 헤더가 없거나 첫 행이 헤더가 아니면 헤더 추가
+    if not existing or existing[0] != header:
+        ws.insert_row(header, 1)
 
     new_rows = [
         [
