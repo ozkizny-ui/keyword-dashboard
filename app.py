@@ -2008,10 +2008,22 @@ elif selected_menu == "🆕 신규키워드 개발":
 
                 if st.button("📤 조합 키워드 Google Sheets에 저장", type="primary", key="nk_save_combined"):
                     _today = datetime.now(KST).strftime("%Y-%m-%d")
+                    # 카테고리 자동 조회
+                    with st.spinner("카테고리 자동 조회 중..."):
+                        try:
+                            from naver_api import fetch_shopping_category
+                            _cat_df = fetch_shopping_category(_combined_df["keyword"].tolist())
+                            _cat_map = {}
+                            for _, _cr in _cat_df.iterrows():
+                                cats = [_cr.get(f"category{i}", "") for i in range(1, 5) if _cr.get(f"category{i}", "")]
+                                _cat_map[_cr["keyword"]] = ">".join(cats)
+                        except Exception:
+                            _cat_map = {}
+
                     _rows_to_save = [
                         {
                             "날짜": _today, "제품명": _nk_product_res,
-                            "카테고리": _nk_cat_res, "타겟": _nk_tgt_res,
+                            "카테고리": _cat_map.get(_r["keyword"], ""), "타겟": "",
                             "키워드": _r["keyword"], "출처": "조합생성",
                             "월간검색수": int(_r["월간검색수"]),
                         }
@@ -2031,10 +2043,22 @@ elif selected_menu == "🆕 신규키워드 개발":
         if not _nk_naver_df.empty:
             if st.button("📤 연관 키워드 Google Sheets에 저장", key="nk_save_related"):
                 _today = datetime.now(KST).strftime("%Y-%m-%d")
+                # 카테고리 자동 조회
+                with st.spinner("카테고리 자동 조회 중..."):
+                    try:
+                        from naver_api import fetch_shopping_category
+                        _cat_df = fetch_shopping_category(_nk_naver_df["keyword"].tolist())
+                        _cat_map = {}
+                        for _, _cr in _cat_df.iterrows():
+                            cats = [_cr.get(f"category{i}", "") for i in range(1, 5) if _cr.get(f"category{i}", "")]
+                            _cat_map[_cr["keyword"]] = ">".join(cats)
+                    except Exception:
+                        _cat_map = {}
+
                 _rows_to_save = [
                     {
                         "날짜": _today, "제품명": _nk_product_res,
-                        "카테고리": _nk_cat_res, "타겟": _nk_tgt_res,
+                        "카테고리": _cat_map.get(_r["keyword"], ""), "타겟": "",
                         "키워드": _r["keyword"], "출처": "네이버API",
                         "월간검색수": int(_r["월간검색수"]),
                     }
