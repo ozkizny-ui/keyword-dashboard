@@ -443,7 +443,21 @@ def read_new_keywords() -> pd.DataFrame:
     if len(data) < 2:
         return pd.DataFrame()
 
-    return pd.DataFrame(data[1:], columns=data[0])
+    header = data[0]
+    # 중복 컬럼명 처리
+    seen: dict = {}
+    deduped = []
+    for col in header:
+        if col in seen:
+            seen[col] += 1
+            deduped.append(f"{col}_{seen[col]}")
+        else:
+            seen[col] = 1
+            deduped.append(col)
+
+    n_cols = len(deduped)
+    rows = [row[:n_cols] + [""] * (n_cols - len(row)) for row in data[1:]]
+    return pd.DataFrame(rows, columns=deduped)
 
 
 def read_rank_data() -> pd.DataFrame:
