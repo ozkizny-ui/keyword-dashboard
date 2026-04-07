@@ -1922,137 +1922,10 @@ elif selected_menu == "🆕 신규키워드 개발":
                 use_container_width=True, hide_index=True,
             )
 
-            # ── 신규 키워드 조합 생성 ──
+            # ── 연관 키워드 Google Sheets 저장 ──
             st.markdown("---")
-            st.markdown("#### 🧩 신규 키워드 조합")
-            st.caption("연관 키워드를 선택하고, 접두어를 붙여 신규 키워드를 생성합니다.")
-
-            _base_options = _nk_naver_df["keyword"].tolist()
-            _selected_bases = st.multiselect(
-                "조합할 키워드 선택",
-                _base_options,
-                default=[],
-                key="nk_base_select",
-                placeholder="키워드를 선택하세요...",
-            )
-
-            _default_prefixes = "유아, 어린이, 아기, 남아, 여아, 키즈, 아동, 주니어"
-            _prefix_input = st.text_input(
-                "접두어 (쉼표로 구분)",
-                value=_default_prefixes,
-                key="nk_prefix_input",
-            )
-            _prefixes = [p.strip() for p in _prefix_input.split(",") if p.strip()]
-
-            if _selected_bases and _prefixes:
-                _combined_keywords = []
-                for _base in _selected_bases:
-                    # 원본 키워드에서 기존 접두어 감지 → 접두어 교체 방식
-                    # "어린이목장갑" + 접두어 ["유아","어린이",...] → 어린이 제거 후 "목장갑"에 각 접두어 붙임
-                    _stem = _base
-                    for _p in _prefixes:
-                        if _base.startswith(_p):
-                            _stem = _base[len(_p):]
-                            break
-
-                    # 각 접두어 + 어근 조합
-                    for _prefix in _prefixes:
-                        _combined = _prefix + _stem
-                        _combined_keywords.append(_combined)
-                    # 어근 자체도 포함 (접두어 없는 버전)
-                    if _stem and _stem not in _combined_keywords:
-                        _combined_keywords.append(_stem)
-
-                # 중복 제거
-                _combined_keywords = list(dict.fromkeys(_combined_keywords))
-
-                # 검색수 조회
-                _combined_df = pd.DataFrame()
-                if st.button("🔍 조합 키워드 검색수 조회", key="nk_combine_search"):
-                    with st.spinner(f"{len(_combined_keywords)}개 조합 키워드 검색수 조회 중..."):
-                        try:
-                            from naver_api import fetch_search_volume as _comb_fetch
-                            _comb_raw = _comb_fetch(_combined_keywords, filter_exact=True)
-                            if not _comb_raw.empty:
-                                _combined_df = (
-                                    _comb_raw[["keyword", "monthlyPcQcCnt", "monthlyMobileQcCnt", "totalSearchCount"]]
-                                    .rename(columns={
-                                        "totalSearchCount": "월간검색수",
-                                        "monthlyPcQcCnt": "PC검색수",
-                                        "monthlyMobileQcCnt": "모바일검색수",
-                                    })
-                                    .sort_values("월간검색수", ascending=False)
-                                    .reset_index(drop=True)
-                                )
-                            else:
-                                # 검색수 없는 키워드도 표시
-                                _combined_df = pd.DataFrame({
-                                    "keyword": _combined_keywords,
-                                    "월간검색수": [0] * len(_combined_keywords),
-                                    "PC검색수": [0] * len(_combined_keywords),
-                                    "모바일검색수": [0] * len(_combined_keywords),
-                                })
-                        except Exception as _comb_e:
-                            st.error(f"검색수 조회 오류: {_comb_e}")
-
-                    if not _combined_df.empty:
-                        st.session_state["_nk_combined"] = _combined_df
-
-                # 미리보기 (검색수 조회 전)
-                if "_nk_combined" not in st.session_state:
-                    st.caption(f"📋 생성될 키워드 미리보기 ({len(_combined_keywords)}개)")
-                    st.dataframe(
-                        pd.DataFrame({"keyword": _combined_keywords}),
-                        use_container_width=True, hide_index=True, height=200,
-                    )
-
-            # 조합 결과 표시 + 저장
-            if "_nk_combined" in st.session_state:
-                _combined_df = st.session_state["_nk_combined"]
-                st.success(f"✅ 조합 키워드: **{len(_combined_df)}개** (검색수 조회 완료)")
-                st.dataframe(
-                    _combined_df.style.format({"월간검색수": "{:,.0f}", "PC검색수": "{:,.0f}", "모바일검색수": "{:,.0f}"}),
-                    use_container_width=True, hide_index=True,
-                )
-
-                if st.button("📤 조합 키워드 Google Sheets에 저장", type="primary", key="nk_save_combined"):
-                    _today = datetime.now(KST).strftime("%Y-%m-%d")
-                    # 카테고리 자동 조회
-                    with st.spinner("카테고리 자동 조회 중..."):
-                        try:
-                            from naver_api import fetch_shopping_category
-                            _cat_df = fetch_shopping_category(_combined_df["keyword"].tolist())
-                            _cat_map = {}
-                            for _, _cr in _cat_df.iterrows():
-                                cats = [_cr.get(f"category{i}", "") for i in range(1, 5) if _cr.get(f"category{i}", "")]
-                                _cat_map[_cr["keyword"]] = ">".join(cats)
-                        except Exception:
-                            _cat_map = {}
-
-                    _rows_to_save = [
-                        {
-                            "날짜": _today, "제품명": _nk_product_res,
-                            "카테고리": _cat_map.get(_r["keyword"], ""), "타겟": "",
-                            "키워드": _r["keyword"], "출처": "조합생성",
-                            "월간검색수": int(_r["월간검색수"]),
-                        }
-                        for _, _r in _combined_df.iterrows()
-                    ]
-                    try:
-                        save_new_keywords(_rows_to_save)
-                        st.success(f"✅ {len(_rows_to_save)}개 키워드를 Google Sheets에 저장했습니다.")
-                    except Exception as _e:
-                        st.error(f"저장 오류: {_e}")
-
-        else:
-            st.info("네이버 API 결과 없음")
-
-        # ── 연관 키워드 Google Sheets 저장
-        st.markdown("---")
-        if not _nk_naver_df.empty:
             if st.button("📤 연관 키워드 Google Sheets에 저장", key="nk_save_related"):
                 _today = datetime.now(KST).strftime("%Y-%m-%d")
-                # 카테고리 자동 조회
                 with st.spinner("카테고리 자동 조회 중..."):
                     try:
                         from naver_api import fetch_shopping_category
@@ -2063,7 +1936,6 @@ elif selected_menu == "🆕 신규키워드 개발":
                             _cat_map[_cr["keyword"]] = ">".join(cats)
                     except Exception:
                         _cat_map = {}
-
                 _rows_to_save = [
                     {
                         "날짜": _today, "제품명": _nk_product_res,
@@ -2078,6 +1950,114 @@ elif selected_menu == "🆕 신규키워드 개발":
                     st.success(f"✅ {len(_rows_to_save)}개 키워드를 Google Sheets에 저장했습니다.")
                 except Exception as _e:
                     st.error(f"저장 오류: {_e}")
+        else:
+            st.info("네이버 API 결과 없음")
+
+    # ══════════════════════════════════════════════
+    # 신규 키워드 조합 (항상 표시)
+    # ══════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("#### 🧩 신규 키워드 조합")
+    st.caption("키워드를 입력하고, 접두어를 교체하여 신규 키워드를 생성합니다.")
+
+    _base_options = []
+    if "_nk_result" in st.session_state and not st.session_state["_nk_result"]["naver_df"].empty:
+        _base_options = st.session_state["_nk_result"]["naver_df"]["keyword"].tolist()
+
+    _nk_combo_tab1, _nk_combo_tab2 = st.tabs(["📋 연관 키워드에서 선택", "✏️ 직접 입력"])
+
+    with _nk_combo_tab1:
+        if _base_options:
+            _selected_from_list = st.multiselect(
+                "조합할 키워드 선택",
+                _base_options,
+                default=[],
+                key="nk_base_select",
+                placeholder="키워드를 선택하세요...",
+            )
+        else:
+            _selected_from_list = []
+            st.info("연관 키워드를 먼저 조회하면 여기서 선택할 수 있습니다.")
+
+    with _nk_combo_tab2:
+        _direct_input = st.text_input(
+            "키워드 직접 입력 (쉼표로 구분)",
+            placeholder="예: 목장갑, 면장갑, 체험장갑",
+            key="nk_direct_input",
+        )
+        _selected_from_input = [k.strip() for k in _direct_input.split(",") if k.strip()] if _direct_input else []
+
+    _selected_bases = list(dict.fromkeys(_selected_from_list + _selected_from_input))
+
+    _default_prefixes = "유아, 어린이, 아기, 남아, 여아, 키즈, 아동"
+    _prefix_input = st.text_input("접두어 (쉼표로 구분)", value=_default_prefixes, key="nk_prefix_input")
+    _prefixes = [p.strip() for p in _prefix_input.split(",") if p.strip()]
+
+    if _selected_bases and _prefixes:
+        _combined_keywords = []
+        for _base in _selected_bases:
+            _stem = _base
+            for _p in _prefixes:
+                if _base.startswith(_p):
+                    _stem = _base[len(_p):]
+                    break
+            for _prefix in _prefixes:
+                _combined_keywords.append(_prefix + _stem)
+            if _stem and _stem not in _combined_keywords:
+                _combined_keywords.append(_stem)
+        _combined_keywords = list(dict.fromkeys(_combined_keywords))
+
+        _combined_df = pd.DataFrame()
+        if st.button("🔍 조합 키워드 검색수 조회", key="nk_combine_search"):
+            with st.spinner(f"{len(_combined_keywords)}개 조합 키워드 검색수 조회 중..."):
+                try:
+                    from naver_api import fetch_search_volume as _comb_fetch
+                    _comb_raw = _comb_fetch(_combined_keywords, filter_exact=True)
+                    if not _comb_raw.empty:
+                        _combined_df = (
+                            _comb_raw[["keyword", "monthlyPcQcCnt", "monthlyMobileQcCnt", "totalSearchCount"]]
+                            .rename(columns={"totalSearchCount": "월간검색수", "monthlyPcQcCnt": "PC검색수", "monthlyMobileQcCnt": "모바일검색수"})
+                            .sort_values("월간검색수", ascending=False).reset_index(drop=True)
+                        )
+                    else:
+                        _combined_df = pd.DataFrame({"keyword": _combined_keywords, "월간검색수": [0]*len(_combined_keywords), "PC검색수": [0]*len(_combined_keywords), "모바일검색수": [0]*len(_combined_keywords)})
+                except Exception as _comb_e:
+                    st.error(f"검색수 조회 오류: {_comb_e}")
+            if not _combined_df.empty:
+                st.session_state["_nk_combined"] = _combined_df
+
+        if "_nk_combined" not in st.session_state:
+            st.caption(f"📋 생성될 키워드 미리보기 ({len(_combined_keywords)}개)")
+            st.dataframe(pd.DataFrame({"keyword": _combined_keywords}), use_container_width=True, hide_index=True, height=200)
+
+    if "_nk_combined" in st.session_state:
+        _combined_df = st.session_state["_nk_combined"]
+        st.success(f"✅ 조합 키워드: **{len(_combined_df)}개** (검색수 조회 완료)")
+        st.dataframe(_combined_df.style.format({"월간검색수": "{:,.0f}", "PC검색수": "{:,.0f}", "모바일검색수": "{:,.0f}"}), use_container_width=True, hide_index=True)
+
+        _nk_product_for_save = st.session_state.get("_nk_result", {}).get("product", "")
+        if st.button("📤 조합 키워드 Google Sheets에 저장", type="primary", key="nk_save_combined"):
+            _today = datetime.now(KST).strftime("%Y-%m-%d")
+            with st.spinner("카테고리 자동 조회 중..."):
+                try:
+                    from naver_api import fetch_shopping_category
+                    _cat_df = fetch_shopping_category(_combined_df["keyword"].tolist())
+                    _cat_map = {}
+                    for _, _cr in _cat_df.iterrows():
+                        cats = [_cr.get(f"category{i}", "") for i in range(1, 5) if _cr.get(f"category{i}", "")]
+                        _cat_map[_cr["keyword"]] = ">".join(cats)
+                except Exception:
+                    _cat_map = {}
+            _rows_to_save = [
+                {"날짜": _today, "제품명": _nk_product_for_save, "카테고리": _cat_map.get(_r["keyword"], ""), "타겟": "", "키워드": _r["keyword"], "출처": "조합생성", "월간검색수": int(_r["월간검색수"])}
+                for _, _r in _combined_df.iterrows()
+            ]
+            try:
+                save_new_keywords(_rows_to_save)
+                st.success(f"✅ {len(_rows_to_save)}개 키워드를 Google Sheets에 저장했습니다.")
+            except Exception as _e:
+                st.error(f"저장 오류: {_e}")
+
 
     # ── 저장 이력 표시
     st.markdown("---")
