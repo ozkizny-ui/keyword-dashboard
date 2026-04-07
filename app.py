@@ -2017,6 +2017,7 @@ elif selected_menu == "🆕 신규키워드 개발":
                         _combined_df = (
                             _comb_raw[["keyword", "monthlyPcQcCnt", "monthlyMobileQcCnt", "totalSearchCount"]]
                             .rename(columns={"totalSearchCount": "월간검색수", "monthlyPcQcCnt": "PC검색수", "monthlyMobileQcCnt": "모바일검색수"})
+                            .drop_duplicates(subset="keyword", keep="first")
                             .sort_values("월간검색수", ascending=False).reset_index(drop=True)
                         )
                     else:
