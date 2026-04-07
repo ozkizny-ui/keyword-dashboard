@@ -1947,12 +1947,21 @@ elif selected_menu == "🆕 신규키워드 개발":
             if _selected_bases and _prefixes:
                 _combined_keywords = []
                 for _base in _selected_bases:
+                    # 원본 키워드에서 기존 접두어 감지 → 접두어 교체 방식
+                    # "어린이목장갑" + 접두어 ["유아","어린이",...] → 어린이 제거 후 "목장갑"에 각 접두어 붙임
+                    _stem = _base
+                    for _p in _prefixes:
+                        if _base.startswith(_p):
+                            _stem = _base[len(_p):]
+                            break
+
+                    # 각 접두어 + 어근 조합
                     for _prefix in _prefixes:
-                        _combined = _prefix + _base
+                        _combined = _prefix + _stem
                         _combined_keywords.append(_combined)
-                    # 원본 키워드도 포함
-                    if _base not in _combined_keywords:
-                        _combined_keywords.append(_base)
+                    # 어근 자체도 포함 (접두어 없는 버전)
+                    if _stem and _stem not in _combined_keywords:
+                        _combined_keywords.append(_stem)
 
                 # 중복 제거
                 _combined_keywords = list(dict.fromkeys(_combined_keywords))
