@@ -1399,14 +1399,22 @@ if selected_menu == "📈 주간 검색수":
             else:
                 _yoy_base["원래 계절"] = "-"
 
-            # 사계절 키워드 제외 ("사계절" 문자열 포함 여부로 판별)
+            # 현재·다음 시즌 계산
+            _ym = datetime.now(KST).month
+            _cur_s = {12:"겨울",1:"겨울",2:"겨울",3:"봄",4:"봄",5:"봄",
+                      6:"여름",7:"여름",8:"여름",9:"가을",10:"가을",11:"가을"}[_ym]
+            _next_s = {"봄":"여름","여름":"가을","가을":"겨울","겨울":"봄"}[_cur_s]
+
+            # 현재·다음 시즌이 포함된 키워드 제외 (사계절은 제외하지 않고 포함)
+            _season_str = _yoy_base["원래 계절"].astype(str)
             _yoy_base = _yoy_base[
-                ~_yoy_base["원래 계절"].astype(str).str.contains("사계절", na=False)
+                ~_season_str.str.contains(_cur_s, na=False)
+                & ~_season_str.str.contains(_next_s, na=False)
             ]
 
             _unexpected = _yoy_base[
                 (_yoy_base["이번주"] >= 500)
-                & (_yoy_base["yoy_pct"] >= 30)
+                & (_yoy_base["yoy_pct"] >= 50)
                 & (pd.to_numeric(_yoy_base["전주대비"], errors="coerce") >= 20)
             ].sort_values("yoy_pct", ascending=False).copy()
 
