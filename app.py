@@ -1129,6 +1129,17 @@ def _render_blog_cafe_table(raw_df: pd.DataFrame, key_prefix: str):
     )
     _bc_icons = [_bc_icon(_bc_this_nums.iloc[i], _bc_prev_nums.iloc[i]) for i in range(len(_bcdf))]
 
+    # 주간 검색수 조인
+    _vol_map = {}
+    try:
+        _wdf = load_weekly()
+        if not _wdf.empty:
+            _wk_cols = [c for c in _wdf.columns if c != "keyword"]
+            if _wk_cols:
+                _vol_map = _wdf.set_index("keyword")[_wk_cols[-1]].to_dict()
+    except Exception:
+        pass
+
     _bc_disp = pd.DataFrame()
     _bc_disp["키워드"] = [
         f"{ic} {kw}".strip() if ic else kw
@@ -1138,6 +1149,10 @@ def _render_blog_cafe_table(raw_df: pd.DataFrame, key_prefix: str):
         _bc_disp["계절"] = _bcdf["계절"].values
     if "품목" in _bcdf.columns:
         _bc_disp["품목"] = _bcdf["품목"].values
+    _bc_disp["검색수"] = [
+        int(_vol_map[kw]) if kw in _vol_map and pd.notna(_vol_map[kw]) else None
+        for kw in _bcdf["keyword"]
+    ]
     _bc_disp[f"이번주 ({_bc_this})"] = _bcdf[_bc_this].apply(_bc_fmt).values
     if _bc_prev:
         _bc_disp[f"지난주 ({_bc_prev})"] = _bcdf[_bc_prev].apply(_bc_fmt).values
