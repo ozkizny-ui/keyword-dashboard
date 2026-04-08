@@ -1455,9 +1455,19 @@ if selected_menu == "📈 주간 검색수":
             else:
                 _yoy_base["원래 계절"] = "-"
 
+            # 사계절 키워드 제외
+            _all_seasons_set = {"봄", "여름", "가을", "겨울"}
+            def _is_all_season(sv):
+                if pd.isna(sv) or str(sv).strip() == "":
+                    return False
+                parts = {s.strip() for s in str(sv).replace("/", ",").split(",")}
+                return parts >= _all_seasons_set
+            _yoy_base = _yoy_base[~_yoy_base["원래 계절"].apply(_is_all_season)]
+
             _unexpected = _yoy_base[
                 (_yoy_base["이번주"] >= 500)
                 & (_yoy_base["yoy_pct"] >= 30)
+                & (pd.to_numeric(_yoy_base["전주대비"], errors="coerce") >= 20)
             ].sort_values("yoy_pct", ascending=False).copy()
 
             _ub = f"({len(_unexpected)}건)" if not _unexpected.empty else "(0건)"
@@ -1474,7 +1484,11 @@ if selected_menu == "📈 주간 검색수":
                             _clr = "#E24B4A" if pd.notna(_r["yoy_pct"]) and _r["yoy_pct"] >= 100 else "#EF9F27"
                             _season_tag = str(_r["원래 계절"]) if pd.notna(_r["원래 계절"]) else "-"
                             _this_w = f"{int(_r['이번주']):,}" if pd.notna(_r["이번주"]) else "-"
-                            _yoy_s = f"+{_r['yoy_pct']:.1f}%" if pd.notna(_r["yoy_pct"]) else "-"
+                            if pd.notna(_r["yoy_pct"]):
+                                _mult = (_r["yoy_pct"] / 100) + 1
+                                _yoy_s = f"작년 대비 {_mult:.1f}배▲"
+                            else:
+                                _yoy_s = "-"
                             _wow_v = _r.get("전주대비")
                             _wow_s = f"전주 대비 {_wow_v:+.1f}%" if pd.notna(_wow_v) else "전주 대비 -"
                             _html = f"""
