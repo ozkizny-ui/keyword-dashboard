@@ -1358,6 +1358,62 @@ if selected_menu == "📈 주간 검색수":
             if "변화율" in period_changes.columns else pd.DataFrame()
         )
 
+        # ── 비시즌 급상승 키워드
+        if not period_ranked.empty and not meta_df.empty and "계절" in meta_df.columns:
+            _month = datetime.now(KST).month
+            _season_map2 = {12: "겨울", 1: "겨울", 2: "겨울",
+                            3: "봄",   4: "봄",   5: "봄",
+                            6: "여름", 7: "여름", 8: "여름",
+                            9: "가을", 10: "가을", 11: "가을"}
+            _cur_season = _season_map2[_month]
+            _all_seasons = {"봄", "여름", "가을", "겨울"}
+
+            def _is_offseason(season_val):
+                """현재 계절이 아닌 단일-계절 키워드 판별 (사계절 제외)"""
+                if pd.isna(season_val) or str(season_val).strip() == "":
+                    return False
+                parts = {s.strip() for s in str(season_val).replace("/", ",").split(",")}
+                # 사계절(4개 모두 포함)이면 제외
+                if parts >= _all_seasons:
+                    return False
+                # 현재 계절이 포함되면 제외
+                if _cur_season in parts:
+                    return False
+                return True
+
+            _offseason_meta = meta_df[meta_df["계절"].apply(_is_offseason)]
+            _offseason_kws = set(_offseason_meta["keyword"].tolist())
+
+            if "이번주" in period_ranked.columns and "변화율" in period_ranked.columns:
+                _offseason_ranked = period_ranked[
+                    period_ranked["keyword"].isin(_offseason_kws)
+                    & (pd.to_numeric(period_ranked["이번주"], errors="coerce") >= 500)
+                    & (pd.to_numeric(period_ranked["변화율"], errors="coerce") >= 30)
+                ].copy()
+                _offseason_ranked = _offseason_ranked.sort_values("변화율", ascending=False)
+
+                # 계절 컬럼 합치기
+                _kw_season = _offseason_meta.set_index("keyword")["계절"].to_dict()
+                _offseason_ranked["원래 계절"] = _offseason_ranked["keyword"].map(_kw_season)
+
+                _badge = f"({len(_offseason_ranked)}건)" if not _offseason_ranked.empty else "(0건)"
+                st.subheader(f"🚨 비시즌 급상승 키워드 {_badge}")
+                if _offseason_ranked.empty:
+                    st.info("현재 비시즌 급상승 키워드가 없습니다.")
+                else:
+                    _off_fmt = {
+                        "이번주": "{:,.0f}", "지난주": "{:,.0f}",
+                        "변화율": lambda x: f"{x:+.1f}%" if pd.notna(x) else "-",
+                    }
+                    _off_display = _offseason_ranked[["keyword", "원래 계절", "이번주", "지난주", "변화율"]].copy()
+                    _off_display.columns = ["키워드", "원래 계절", "이번주 검색수", "지난주 검색수", "변화율"]
+                    _off_fmt2 = {
+                        "이번주 검색수": "{:,.0f}", "지난주 검색수": "{:,.0f}",
+                        "변화율": lambda x: f"{x:+.1f}%" if pd.notna(x) else "-",
+                    }
+                    st.dataframe(_off_display.style.format(_off_fmt2, na_rep="-"), use_container_width=True, hide_index=True)
+            st.markdown("---")
+
         # ── 급상승/급하락 TOP 100 (선택 기간 마지막 2주 기준)
         if not period_ranked.empty:
             _top_fmt = {
