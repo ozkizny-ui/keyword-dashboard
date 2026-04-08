@@ -1441,7 +1441,7 @@ if selected_menu == "📈 주간 검색수":
             _yoy_base["작년동주"] = pd.to_numeric(_yoy_base["작년동주"], errors="coerce")
             _yoy_base["yoy_pct"] = (
                 (_yoy_base["이번주"] - _yoy_base["작년동주"])
-                / _yoy_base["작년동주"].replace(0, pd.NA) * 100
+                / _yoy_base["작년동주"].replace(0, float("nan")) * 100
             ).round(1)
             _wow_map = (
                 period_ranked.set_index("keyword")["변화율"].to_dict()
