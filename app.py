@@ -1413,8 +1413,8 @@ if selected_menu == "📈 주간 검색수":
             ]
 
             _unexpected = _yoy_base[
-                (_yoy_base["이번주"] >= 500)
-                & (_yoy_base["yoy_pct"] >= 50)
+                (_yoy_base["이번주"] >= 300)
+                & (_yoy_base["yoy_pct"] >= 30)
                 & (pd.to_numeric(_yoy_base["전주대비"], errors="coerce") >= 20)
             ].sort_values("yoy_pct", ascending=False).copy()
 
