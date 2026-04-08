@@ -1414,6 +1414,101 @@ if selected_menu == "📈 주간 검색수":
                     st.dataframe(_off_display.style.format(_off_fmt2, na_rep="-"), use_container_width=True, hide_index=True)
             st.markdown("---")
 
+        # ── 예상 밖 급상승 키워드 (작년 동기 대비 YoY)
+        _yoy_col = None
+        if len(week_cols) >= 2:
+            try:
+                _latest_start = datetime.strptime(week_cols[-1].split("-")[0], "%Y.%m.%d")
+                _yoy_target = _latest_start - timedelta(weeks=52)
+                _best_col, _best_diff = None, None
+                for _c in week_cols[:-1]:
+                    try:
+                        _cs = datetime.strptime(_c.split("-")[0], "%Y.%m.%d")
+                        _d = abs((_cs - _yoy_target).days)
+                        if _best_diff is None or _d < _best_diff:
+                            _best_diff, _best_col = _d, _c
+                    except ValueError:
+                        continue
+                if _best_col and _best_diff is not None and _best_diff <= 30:
+                    _yoy_col = _best_col
+            except (ValueError, IndexError):
+                pass
+
+        if _yoy_col:
+            _yoy_base = filtered[["keyword", week_cols[-1], _yoy_col]].copy()
+            _yoy_base.columns = ["keyword", "이번주", "작년동주"]
+            _yoy_base["이번주"] = pd.to_numeric(_yoy_base["이번주"], errors="coerce")
+            _yoy_base["작년동주"] = pd.to_numeric(_yoy_base["작년동주"], errors="coerce")
+            _yoy_base["yoy_pct"] = (
+                (_yoy_base["이번주"] - _yoy_base["작년동주"])
+                / _yoy_base["작년동주"].replace(0, pd.NA) * 100
+            ).round(1)
+            _wow_map = (
+                period_ranked.set_index("keyword")["변화율"].to_dict()
+                if "변화율" in period_ranked.columns else {}
+            )
+            _yoy_base["전주대비"] = _yoy_base["keyword"].map(_wow_map)
+
+            if not meta_df.empty and "계절" in meta_df.columns:
+                _ys_map = meta_df.set_index("keyword")["계절"].to_dict()
+                _yoy_base["원래 계절"] = _yoy_base["keyword"].map(_ys_map).fillna("-")
+            else:
+                _yoy_base["원래 계절"] = "-"
+
+            _unexpected = _yoy_base[
+                (_yoy_base["이번주"] >= 500)
+                & (_yoy_base["yoy_pct"] >= 30)
+            ].sort_values("yoy_pct", ascending=False).copy()
+
+            _ub = f"({len(_unexpected)}건)" if not _unexpected.empty else "(0건)"
+            st.subheader(f"⚡ 예상 밖 급상승 키워드 {_ub}")
+
+            if _unexpected.empty:
+                st.info("현재 예상 밖 급상승 키워드가 없습니다.")
+            else:
+                def _render_yoy_cards(card_df):
+                    _chunks = [card_df.iloc[i:i+3] for i in range(0, len(card_df), 3)]
+                    for _chunk in _chunks:
+                        _cols = st.columns(3)
+                        for _ci, (_, _r) in enumerate(_chunk.iterrows()):
+                            _clr = "#E24B4A" if pd.notna(_r["yoy_pct"]) and _r["yoy_pct"] >= 100 else "#EF9F27"
+                            _season_tag = str(_r["원래 계절"]) if pd.notna(_r["원래 계절"]) else "-"
+                            _this_w = f"{int(_r['이번주']):,}" if pd.notna(_r["이번주"]) else "-"
+                            _yoy_s = f"+{_r['yoy_pct']:.1f}%" if pd.notna(_r["yoy_pct"]) else "-"
+                            _wow_v = _r.get("전주대비")
+                            _wow_s = f"전주 대비 {_wow_v:+.1f}%" if pd.notna(_wow_v) else "전주 대비 -"
+                            _html = f"""
+<div style="border-top:0.5px solid #e2e8f0;border-right:0.5px solid #e2e8f0;border-bottom:0.5px solid #e2e8f0;border-left:3px solid {_clr};border-radius:10px;background:#ffffff;padding:14px 16px;margin-bottom:4px;">
+  <div style="font-size:11px;color:#94a3b8;font-weight:600;margin-bottom:5px;">{_season_tag}</div>
+  <div style="font-size:16px;font-weight:700;color:#0f172a;margin-bottom:10px;">{_r['keyword']}</div>
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;">
+    <div>
+      <span style="font-size:22px;font-weight:800;color:#1e293b;">{_this_w}</span>
+      <span style="font-size:11px;color:#94a3b8;margin-left:2px;">회</span>
+    </div>
+    <div style="font-size:22px;font-weight:800;color:{_clr};">{_yoy_s}</div>
+  </div>
+  <div style="font-size:11px;color:#94a3b8;margin-top:6px;">{_wow_s}</div>
+</div>"""
+                            with _cols[_ci]:
+                                st.markdown(_html, unsafe_allow_html=True)
+
+                _render_yoy_cards(_unexpected.head(6))
+
+                _rest = _unexpected.iloc[6:]
+                if not _rest.empty:
+                    with st.expander(f"나머지 {len(_rest)}개 더 보기"):
+                        _rd = _rest[["keyword", "원래 계절", "이번주", "작년동주", "yoy_pct", "전주대비"]].copy()
+                        _rd.columns = ["키워드", "원래 계절", "이번주 검색수", "작년 동기", "작년 대비", "전주 대비"]
+                        _rd_fmt = {
+                            "이번주 검색수": "{:,.0f}", "작년 동기": "{:,.0f}",
+                            "작년 대비": lambda x: f"{x:+.1f}%" if pd.notna(x) else "-",
+                            "전주 대비": lambda x: f"{x:+.1f}%" if pd.notna(x) else "-",
+                        }
+                        st.dataframe(_rd.style.format(_rd_fmt, na_rep="-"), use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+
         # ── 급상승/급하락 TOP 100 (선택 기간 마지막 2주 기준)
         if not period_ranked.empty:
             _top_fmt = {
