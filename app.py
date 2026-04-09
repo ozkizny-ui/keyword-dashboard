@@ -652,24 +652,66 @@ def _merge_meta(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _multiselect_filter(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
-    """계절/품목 st.multiselect 필터 UI를 테이블 위에 렌더링하고 필터된 df를 반환."""
+    """계절/품목 필터 + 키워드 제외 필터. 토글(expander) + 체크박스 방식."""
+    out = df.copy()
+
     _s_opts = sorted(df["계절"].replace("", pd.NA).dropna().unique().tolist()) if "계절" in df.columns else []
     _i_opts = sorted(df["품목"].replace("", pd.NA).dropna().unique().tolist()) if "품목" in df.columns else []
-    sel_s = _s_opts[:]
-    sel_i = _i_opts[:]
-    if _s_opts or _i_opts:
-        c1, c2 = st.columns(2)
-        with c1:
-            if _s_opts:
-                sel_s = st.multiselect("계절 필터", _s_opts, default=_s_opts, key=f"{key_prefix}_season")
-        with c2:
-            if _i_opts:
-                sel_i = st.multiselect("품목 필터", _i_opts, default=_i_opts, key=f"{key_prefix}_item")
-    out = df.copy()
-    if _s_opts and "계절" in out.columns:
-        out = out[out["계절"].isin(sel_s)]
-    if _i_opts and "품목" in out.columns:
-        out = out[out["품목"].isin(sel_i)]
+
+    with st.expander("🔽 필터 설정", expanded=False):
+        # ── 계절 필터 ──
+        if _s_opts:
+            st.markdown("**계절 필터**")
+            _s_cols = st.columns(min(len(_s_opts), 6))
+            sel_s = []
+            for idx, opt in enumerate(_s_opts):
+                with _s_cols[idx % len(_s_cols)]:
+                    if st.checkbox(opt, value=True, key=f"{key_prefix}_s_{opt}"):
+                        sel_s.append(opt)
+            if sel_s and "계절" in out.columns:
+                out = out[out["계절"].isin(sel_s)]
+
+        # ── 품목 필터 ──
+        if _i_opts:
+            st.markdown("**품목 필터**")
+            _i_cols = st.columns(min(len(_i_opts), 6))
+            sel_i = []
+            for idx, opt in enumerate(_i_opts):
+                with _i_cols[idx % len(_i_cols)]:
+                    if st.checkbox(opt, value=True, key=f"{key_prefix}_i_{opt}"):
+                        sel_i.append(opt)
+            if sel_i and "품목" in out.columns:
+                out = out[out["품목"].isin(sel_i)]
+
+        # ── 키워드 제외 필터 (Google Sheets에 저장되어 유지) ──
+        st.markdown("**키워드 제외**")
+        _excl_setting_key = f"exclude_keywords_{key_prefix}"
+        _saved_exclude = load_setting(_excl_setting_key, "")
+        _exclude_input = st.text_input(
+            "제외할 단어 (쉼표로 구분)",
+            value=_saved_exclude,
+            placeholder="예: 주니어, 초등, 성인",
+            key=f"{key_prefix}_exclude",
+        )
+        # 값이 변경되면 저장
+        if _exclude_input.strip() != _saved_exclude.strip():
+            try:
+                save_setting(_excl_setting_key, _exclude_input.strip())
+            except Exception:
+                pass
+        if _exclude_input.strip():
+            _exclude_words = [w.strip() for w in _exclude_input.split(",") if w.strip()]
+            if _exclude_words and "keyword" in out.columns:
+                _excl_mask = out["keyword"].apply(
+                    lambda kw: not any(ew in str(kw) for ew in _exclude_words)
+                )
+                out = out[_excl_mask]
+            elif _exclude_words and "키워드" in out.columns:
+                _excl_mask = out["키워드"].apply(
+                    lambda kw: not any(ew in str(kw) for ew in _exclude_words)
+                )
+                out = out[_excl_mask]
+
     return out
 
 
@@ -1129,20 +1171,6 @@ def _render_blog_cafe_table(raw_df: pd.DataFrame, key_prefix: str):
     )
     _bc_icons = [_bc_icon(_bc_this_nums.iloc[i], _bc_prev_nums.iloc[i]) for i in range(len(_bcdf))]
 
-    # 주간 검색수 조인 (키워드 strip 후 매핑)
-    _vol_map = {}
-    try:
-        _wdf = load_weekly()
-        if not _wdf.empty:
-            _wk_cols = [c for c in _wdf.columns if c != "keyword"]
-            if _wk_cols:
-                _wdf2 = _wdf[["keyword", _wk_cols[-1]]].copy()
-                _wdf2["keyword"] = _wdf2["keyword"].astype(str).str.strip()
-                _wdf2[_wk_cols[-1]] = pd.to_numeric(_wdf2[_wk_cols[-1]], errors="coerce")
-                _vol_map = _wdf2.set_index("keyword")[_wk_cols[-1]].dropna().to_dict()
-    except Exception:
-        pass
-
     _bc_disp = pd.DataFrame()
     _bc_disp["키워드"] = [
         f"{ic} {kw}".strip() if ic else kw
@@ -1152,11 +1180,6 @@ def _render_blog_cafe_table(raw_df: pd.DataFrame, key_prefix: str):
         _bc_disp["계절"] = _bcdf["계절"].values
     if "품목" in _bcdf.columns:
         _bc_disp["품목"] = _bcdf["품목"].values
-    _bc_disp["검색수"] = [
-        int(_vol_map[str(kw).strip()])
-        if str(kw).strip() in _vol_map else None
-        for kw in _bcdf["keyword"]
-    ]
     _bc_disp[f"이번주 ({_bc_this})"] = _bcdf[_bc_this].apply(_bc_fmt).values
     if _bc_prev:
         _bc_disp[f"지난주 ({_bc_prev})"] = _bcdf[_bc_prev].apply(_bc_fmt).values
@@ -1376,119 +1399,6 @@ if selected_menu == "📈 주간 검색수":
             period_changes.dropna(subset=["변화율"])
             if "변화율" in period_changes.columns else pd.DataFrame()
         )
-
-        # ── 예상 밖 급상승 키워드 (작년 동기 대비 YoY)
-        _yoy_col = None
-        if len(week_cols) >= 2:
-            try:
-                _latest_start = datetime.strptime(week_cols[-1].split("-")[0], "%Y.%m.%d")
-                _yoy_target = _latest_start - timedelta(weeks=52)
-                _best_col, _best_diff = None, None
-                for _c in week_cols[:-1]:
-                    try:
-                        _cs = datetime.strptime(_c.split("-")[0], "%Y.%m.%d")
-                        _d = abs((_cs - _yoy_target).days)
-                        if _best_diff is None or _d < _best_diff:
-                            _best_diff, _best_col = _d, _c
-                    except ValueError:
-                        continue
-                if _best_col and _best_diff is not None and _best_diff <= 30:
-                    _yoy_col = _best_col
-            except (ValueError, IndexError):
-                pass
-
-        if _yoy_col:
-            _yoy_base = filtered[["keyword", week_cols[-1], _yoy_col]].copy()
-            _yoy_base.columns = ["keyword", "이번주", "작년동주"]
-            _yoy_base["이번주"] = pd.to_numeric(_yoy_base["이번주"], errors="coerce")
-            _yoy_base["작년동주"] = pd.to_numeric(_yoy_base["작년동주"], errors="coerce")
-            _yoy_base["yoy_pct"] = (
-                (_yoy_base["이번주"] - _yoy_base["작년동주"])
-                / _yoy_base["작년동주"].replace(0, float("nan")) * 100
-            ).round(1)
-            _wow_map = (
-                period_ranked.set_index("keyword")["변화율"].to_dict()
-                if "변화율" in period_ranked.columns else {}
-            )
-            _yoy_base["전주대비"] = _yoy_base["keyword"].map(_wow_map)
-
-            if not meta_df.empty and "계절" in meta_df.columns:
-                _ys_map = meta_df.set_index("keyword")["계절"].to_dict()
-                _yoy_base["원래 계절"] = _yoy_base["keyword"].map(_ys_map).fillna("-")
-            else:
-                _yoy_base["원래 계절"] = "-"
-
-            # 현재·다음 시즌 계산
-            _ym = datetime.now(KST).month
-            _cur_s = {12:"겨울",1:"겨울",2:"겨울",3:"봄",4:"봄",5:"봄",
-                      6:"여름",7:"여름",8:"여름",9:"가을",10:"가을",11:"가을"}[_ym]
-            _next_s = {"봄":"여름","여름":"가을","가을":"겨울","겨울":"봄"}[_cur_s]
-
-            # 현재·다음 시즌이 포함된 키워드 제외 (사계절은 제외하지 않고 포함)
-            _season_str = _yoy_base["원래 계절"].astype(str)
-            _yoy_base = _yoy_base[
-                ~_season_str.str.contains(_cur_s, na=False)
-                & ~_season_str.str.contains(_next_s, na=False)
-            ]
-
-            _unexpected = _yoy_base[
-                (_yoy_base["이번주"] >= 300)
-                & (_yoy_base["yoy_pct"] >= 30)
-                & (pd.to_numeric(_yoy_base["전주대비"], errors="coerce") >= 20)
-            ].sort_values("yoy_pct", ascending=False).copy()
-
-            _ub = f"({len(_unexpected)}건)" if not _unexpected.empty else "(0건)"
-            st.subheader(f"⚡ 예상 밖 급상승 키워드 {_ub}")
-
-            if _unexpected.empty:
-                st.info("현재 예상 밖 급상승 키워드가 없습니다.")
-            else:
-                def _render_yoy_cards(card_df):
-                    _chunks = [card_df.iloc[i:i+3] for i in range(0, len(card_df), 3)]
-                    for _chunk in _chunks:
-                        _cols = st.columns(3)
-                        for _ci, (_, _r) in enumerate(_chunk.iterrows()):
-                            _clr = "#E24B4A" if pd.notna(_r["yoy_pct"]) and _r["yoy_pct"] >= 100 else "#EF9F27"
-                            _season_tag = str(_r["원래 계절"]) if pd.notna(_r["원래 계절"]) else "-"
-                            _this_w = f"{int(_r['이번주']):,}" if pd.notna(_r["이번주"]) else "-"
-                            if pd.notna(_r["yoy_pct"]):
-                                _mult = (_r["yoy_pct"] / 100) + 1
-                                _yoy_s = f"작년 대비 {_mult:.1f}배▲"
-                            else:
-                                _yoy_s = "-"
-                            _wow_v = _r.get("전주대비")
-                            _wow_s = f"전주 대비 {_wow_v:+.1f}%" if pd.notna(_wow_v) else "전주 대비 -"
-                            _html = f"""
-<div style="border-top:0.5px solid #e2e8f0;border-right:0.5px solid #e2e8f0;border-bottom:0.5px solid #e2e8f0;border-left:3px solid {_clr};border-radius:10px;background:#ffffff;padding:14px 16px;margin-bottom:4px;">
-  <div style="font-size:11px;color:#94a3b8;font-weight:600;margin-bottom:5px;">{_season_tag}</div>
-  <div style="font-size:16px;font-weight:700;color:#0f172a;margin-bottom:10px;">{_r['keyword']}</div>
-  <div style="display:flex;justify-content:space-between;align-items:flex-end;">
-    <div>
-      <span style="font-size:22px;font-weight:800;color:#1e293b;">{_this_w}</span>
-      <span style="font-size:11px;color:#94a3b8;margin-left:2px;">회</span>
-    </div>
-    <div style="font-size:22px;font-weight:800;color:{_clr};">{_yoy_s}</div>
-  </div>
-  <div style="font-size:11px;color:#94a3b8;margin-top:6px;">{_wow_s}</div>
-</div>"""
-                            with _cols[_ci]:
-                                st.markdown(_html, unsafe_allow_html=True)
-
-                _render_yoy_cards(_unexpected.head(6))
-
-                _rest = _unexpected.iloc[6:]
-                if not _rest.empty:
-                    with st.expander(f"나머지 {len(_rest)}개 더 보기"):
-                        _rd = _rest[["keyword", "원래 계절", "이번주", "작년동주", "yoy_pct", "전주대비"]].copy()
-                        _rd.columns = ["키워드", "원래 계절", "이번주 검색수", "작년 동기", "작년 대비", "전주 대비"]
-                        _rd_fmt = {
-                            "이번주 검색수": "{:,.0f}", "작년 동기": "{:,.0f}",
-                            "작년 대비": lambda x: f"{x:+.1f}%" if pd.notna(x) else "-",
-                            "전주 대비": lambda x: f"{x:+.1f}%" if pd.notna(x) else "-",
-                        }
-                        st.dataframe(_rd.style.format(_rd_fmt, na_rep="-"), use_container_width=True, hide_index=True)
-
-            st.markdown("---")
 
         # ── 급상승/급하락 TOP 100 (선택 기간 마지막 2주 기준)
         if not period_ranked.empty:
