@@ -231,7 +231,12 @@ def _parse_week_label(week_str: str) -> str:
 
 def parse_ad_report_multiweek(file_obj, ad_type: str = "auto") -> tuple:
     """
-    '주별' 컬럼이 있는 CSV를 파싱하여 주차별 데이터 반환.
+    '주별' 또는 '일별' 컬럼이 있는 CSV를 파싱하여 주차별 데이터 반환.
+
+    일별 데이터인 경우:
+    - 파일 내 최신 날짜 기준 최근 7일 = 이번주
+    - 그 이전 7일 = 지난주
+    - 각 주차의 일별 데이터를 키워드별로 집계
 
     Returns:
         (week_dfs, week_labels)
@@ -250,9 +255,10 @@ def parse_ad_report_multiweek(file_obj, ad_type: str = "auto") -> tuple:
     df_raw = df_raw.dropna(how="all").reset_index(drop=True)
     cols = df_raw.columns.tolist()
 
-    # ── 한글 컬럼명 → 영어 표준명 매핑 (주차 분리보다 먼저 실행) ──
+    # ── 한글 컬럼명 → 영어 표준명 매핑 ──
     _col_targets = {
         "week":          ["주별"],
+        "daily":         ["일별"],
         "campaign_type": ["캠페인유형"],
         "media":         ["PC/모바일매체", "PC/모바일", "모바일매체"],
         "keyword_raw":   ["키워드"],
@@ -271,8 +277,12 @@ def parse_ad_report_multiweek(file_obj, ad_type: str = "auto") -> tuple:
     df_raw = df_raw.rename(columns=rename_map)
     cols = df_raw.columns.tolist()
 
+    # ── 일별 데이터 → 주별로 변환 ──
+    if "daily" in cols and "week" not in cols:
+        return _parse_daily_to_weekly(df_raw, ad_type)
+
     if "week" not in cols:
-        # 주별 컬럼 없음 → 단일 주 처리
+        # 주별/일별 컬럼 없음 → 단일 주 처리
         if hasattr(file_obj, "seek"):
             file_obj.seek(0)
         df, date_label = parse_ad_report(file_obj, ad_type)
@@ -280,7 +290,7 @@ def parse_ad_report_multiweek(file_obj, ad_type: str = "auto") -> tuple:
             return {}, []
         return {date_label: summarize_by_keyword(df)}, [date_label]
 
-    # 주별 고유 값 추출 및 정렬
+    # ── 기존 주별 처리 로직 ──
     week_raw_map: dict = {}
     for v in df_raw["week"].dropna().unique():
         label = _parse_week_label(str(v))
@@ -339,6 +349,98 @@ def parse_ad_report_multiweek(file_obj, ad_type: str = "auto") -> tuple:
             for c in ["avg_rank", "impressions", "clicks", "cost"]:
                 result[c] = pd.to_numeric(result[c], errors="coerce").fillna(0)
             week_dfs[label] = summarize_by_keyword(result)
+
+    return week_dfs, sorted_labels
+
+
+def _parse_daily_to_weekly(df_raw: pd.DataFrame, ad_type: str) -> tuple:
+    """
+    일별 데이터를 최근 7일(이번주) / 이전 7일(지난주)로 분리하여 주차별 데이터 반환.
+
+    기준: 파일 내 최신 날짜로부터 역산
+    - 최근 7일 = 이번주
+    - 8~14일 전 = 지난주
+    """
+    cols = df_raw.columns.tolist()
+
+    # 날짜 파싱 (2026.03.27. 형식)
+    df_raw["_date"] = pd.to_datetime(
+        df_raw["daily"].astype(str).str.strip().str.rstrip("."),
+        format="%Y.%m.%d",
+        errors="coerce",
+    )
+    df_raw = df_raw.dropna(subset=["_date"]).reset_index(drop=True)
+
+    if df_raw.empty:
+        return {}, []
+
+    # 최신 날짜 기준으로 이번주/지난주 분리
+    max_date = df_raw["_date"].max()
+    this_week_start = max_date - timedelta(days=6)  # 최근 7일
+    prev_week_start = this_week_start - timedelta(days=7)  # 이전 7일
+
+    this_week_mask = df_raw["_date"] >= this_week_start
+    prev_week_mask = (df_raw["_date"] >= prev_week_start) & (df_raw["_date"] < this_week_start)
+
+    this_week_label = f"{this_week_start.strftime('%Y.%m.%d')}-{max_date.strftime('%Y.%m.%d')}"
+    prev_week_end = this_week_start - timedelta(days=1)
+    prev_week_label = f"{prev_week_start.strftime('%Y.%m.%d')}-{prev_week_end.strftime('%Y.%m.%d')}"
+
+    week_dfs = {}
+    sorted_labels = []
+
+    for mask, label in [(prev_week_mask, prev_week_label), (this_week_mask, this_week_label)]:
+        week_rows = df_raw[mask].copy().reset_index(drop=True)
+
+        # 모바일만 필터
+        if "media" in cols:
+            week_rows = week_rows[week_rows["media"].astype(str).str.contains("모바일", na=False)]
+        # 플레이스 제외
+        if "campaign_type" in cols:
+            week_rows = week_rows[~week_rows["campaign_type"].astype(str).str.contains("플레이스", na=False)]
+
+        week_rows = week_rows.reset_index(drop=True)
+        if week_rows.empty:
+            continue
+
+        rows = []
+        for _, row in week_rows.iterrows():
+            camp = str(row.get("campaign_type", "")).strip()
+
+            if ad_type == "shopping":
+                resolved = "쇼핑검색"
+            elif ad_type == "powerlink":
+                resolved = "파워링크"
+            elif "쇼핑" in camp:
+                resolved = "쇼핑검색"
+            elif "파워링크" in camp:
+                resolved = "파워링크"
+            else:
+                resolved = camp or "기타"
+
+            if resolved == "쇼핑검색":
+                kw = str(row.get("query", row.get("keyword_raw", ""))).strip()
+            else:
+                kw = str(row.get("keyword_raw", row.get("query", ""))).strip()
+
+            if not kw or kw in ("nan", "None", "-", ""):
+                continue
+
+            rows.append({
+                "keyword":     kw,
+                "ad_type":     resolved,
+                "avg_rank":    _to_num(row.get("avg_rank", 0)),
+                "impressions": _to_num(row.get("impressions", 0)),
+                "clicks":      _to_num(row.get("clicks", 0)),
+                "cost":        _to_num(row.get("cost", 0)),
+            })
+
+        if rows:
+            result = pd.DataFrame(rows)
+            for c in ["avg_rank", "impressions", "clicks", "cost"]:
+                result[c] = pd.to_numeric(result[c], errors="coerce").fillna(0)
+            week_dfs[label] = summarize_by_keyword(result)
+            sorted_labels.append(label)
 
     return week_dfs, sorted_labels
 
