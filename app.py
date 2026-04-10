@@ -1185,7 +1185,25 @@ def _render_blog_cafe_table(raw_df: pd.DataFrame, key_prefix: str):
         _bc_disp[f"지난주 ({_bc_prev})"] = _bcdf[_bc_prev].apply(_bc_fmt).values
 
     _bc_sort = _bc_this_nums.apply(lambda v: 9999 if (v is None or v == 0) else v)
-    _bc_disp = _bc_disp.iloc[_bc_sort.argsort().values].reset_index(drop=True)
+    _bc_sorted_idx = _bc_sort.argsort().values
+    _bc_disp = _bc_disp.iloc[_bc_sorted_idx].reset_index(drop=True)
+
+    # ── 월간검색수 조회 (session_state 캐싱) ──
+    _sv_cache_key = f"_bc_sv_{key_prefix}"
+    _kw_list = _bcdf["keyword"].tolist()
+    if _sv_cache_key not in st.session_state or st.session_state.get(f"_bc_sv_kws_{key_prefix}") != _kw_list:
+        with st.spinner("월간검색수 조회 중..."):
+            from naver_api import fetch_search_volume
+            _sv_df = fetch_search_volume(_kw_list)
+        st.session_state[_sv_cache_key] = _sv_df
+        st.session_state[f"_bc_sv_kws_{key_prefix}"] = _kw_list
+    else:
+        _sv_df = st.session_state[_sv_cache_key]
+
+    if not _sv_df.empty:
+        _sv_map = dict(zip(_sv_df["keyword"], _sv_df["totalSearchCount"]))
+        _kw_sorted = _bcdf["keyword"].iloc[_bc_sorted_idx].reset_index(drop=True)
+        _bc_disp.insert(1, "월간검색수", _kw_sorted.map(lambda k: _sv_map.get(k, "-")).values)
 
     st.metric("키워드 수", len(_bc_disp))
     st.dataframe(_bc_disp, use_container_width=True, hide_index=True, height=420)
