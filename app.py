@@ -1150,14 +1150,12 @@ def _render_blog_cafe_table(raw_df: pd.DataFrame, key_prefix: str):
         except ValueError:
             return None
 
-    def _bc_fmt(v):
-        s = str(v).strip()
-        if s == "서치피드":
-            return "서치피드"
-        n = _bc_parse(s)
-        if n is None:
+    def _bc_fmt(n):
+        try:
+            val = int(float(n))
+            return "순위권 밖" if val == 0 else str(val)
+        except (ValueError, TypeError):
             return "-"
-        return "순위권 밖" if int(n) == 0 else str(int(n))
 
     def _bc_icon(this_v, prev_v):
         if this_v is None or prev_v is None or this_v == 0 or prev_v == 0:
