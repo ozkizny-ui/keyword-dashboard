@@ -991,18 +991,26 @@ def _render_rank_tab(
         _disp = _multiselect_filter(_disp, f"{uploader_key}_up")
         _disp = _disp.reset_index(drop=True)
 
-        # 스타일링용 원본 avg_rank 캡처 (keyword ⚠️ 변환 전)
+        # 스타일링용 원본 avg_rank / 키워드 캡처 (icon 변환 전)
         _style_ranks = pd.to_numeric(_disp["avg_rank"], errors="coerce") if "avg_rank" in _disp.columns else pd.Series(dtype=float)
-        _style_kws   = _disp["keyword"].tolist() if "keyword" in _disp.columns else []
+        _orig_kws = _disp["keyword"].tolist() if "keyword" in _disp.columns else []
 
-        # 지난주 순위 로드 (이력 시트 마지막 저장 주차)
+        # 지난주 순위 로드 (이력 시트 마지막 저장 주차) — 이번주와 나란히 표시
+        _prev_rank_label = None
         _prev_rank_map: dict = {}
         if use_styling:
             _ph = load_fn()
             if not _ph.empty:
                 _phdc = [c for c in _ph.columns if c not in {"keyword", "계절", "품목"}]
                 if _phdc:
-                    _prev_rank_map = _ph.set_index("keyword")[_phdc[-1]].to_dict()
+                    _prev_rank_label = _phdc[-1]
+                    _prev_rank_map = _ph.set_index("keyword")[_prev_rank_label].to_dict()
+
+        # 지난주 순위 숫자값 Series (이번주 순서 기준)
+        _prev_rank_nums = pd.Series(
+            [pd.to_numeric(_prev_rank_map.get(str(kw).strip()), errors="coerce") for kw in _orig_kws],
+            dtype=float,
+        )
 
         # 키워드 아이콘 추가 (🔻: 4이상 하락, ⚠️: 10위 초과)
         def _add_kw_icon(r):
@@ -1016,25 +1024,40 @@ def _render_rank_tab(
             return kw
 
         _disp["keyword"] = _disp.apply(_add_kw_icon, axis=1)
-        _col_order = ["keyword"] + [c for c in ("계절", "품목") if c in _disp.columns]
-        _col_order += [c for c in _RANK_SHOW_COLS if c != "keyword" and c in _disp.columns]
-        _disp = _disp[[c for c in _col_order if c in _disp.columns]]
-        _rank_col_label = f"평균노출순위 ({_date_label})"
-        _disp = _disp.rename(columns={**_RANK_COL_KR, "avg_rank": _rank_col_label})
-        _disp = _disp.reset_index(drop=True)
+
+        # 컬럼 구성: 지난주 데이터가 있으면 이번주/지난주 나란히, 없으면 단일 컬럼
+        _meta_cols_s = [c for c in ("계절", "품목") if c in _disp.columns]
+        if _prev_rank_label:
+            st.caption(f"📅 이번주: {_date_label}  |  지난주: {_prev_rank_label}")
+            _this_col_s = f"이번주 ({_date_label})"
+            _prev_col_s = f"지난주 ({_prev_rank_label})"
+            _disp = _disp.rename(columns={"keyword": "키워드", "avg_rank": _this_col_s})
+            _disp[_prev_col_s] = _prev_rank_nums.values
+            _col_order = ["키워드"] + _meta_cols_s + [_prev_col_s, _this_col_s]
+        else:
+            _this_col_s = f"평균노출순위 ({_date_label})"
+            _prev_col_s = None
+            _col_order = ["keyword"] + _meta_cols_s
+            _col_order += [c for c in _RANK_SHOW_COLS if c != "keyword" and c in _disp.columns]
+            _disp = _disp.rename(columns={**_RANK_COL_KR, "avg_rank": _this_col_s})
+            _col_order = [_RANK_COL_KR.get(c, c) for c in _col_order]
+
+        _disp = _disp[[c for c in _col_order if c in _disp.columns]].reset_index(drop=True)
 
         st.metric("키워드 수", len(_disp))
 
         _num_cols_disp = {c: "{:,.0f}" for c in _disp.columns if pd.api.types.is_numeric_dtype(_disp[c])}
+        _num_cols_disp[_this_col_s] = "{:,.0f}"
+        if _prev_col_s:
+            _num_cols_disp[_prev_col_s] = "{:,.0f}"
+
         if use_styling:
             def _upload_style(df):
                 result = pd.DataFrame("", index=df.index, columns=df.columns)
-                _rank_label = [c for c in df.columns if "평균노출순위" in c]
-                _rank_ci = df.columns.get_loc(_rank_label[0]) if _rank_label else -1
+                _rank_ci = df.columns.get_loc(_this_col_s) if _this_col_s in df.columns else -1
                 for i in range(len(df)):
                     this_r = _style_ranks.iloc[i] if i < len(_style_ranks) else float("nan")
-                    orig_kw = _style_kws[i] if i < len(_style_kws) else ""
-                    prev_r = pd.to_numeric(_prev_rank_map.get(str(orig_kw).strip()), errors="coerce")
+                    prev_r = _prev_rank_nums.iloc[i] if i < len(_prev_rank_nums) else float("nan")
                     is_drop = pd.notna(this_r) and pd.notna(prev_r) and (this_r - prev_r) >= 4
                     is_warn = pd.notna(this_r) and this_r > 10
                     if _rank_ci >= 0:
