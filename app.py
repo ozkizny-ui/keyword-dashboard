@@ -1626,9 +1626,7 @@ elif selected_menu == "📊 연간 트렌드":
         and trend_df["keyword"].notna().any()
     )
 
-    if not _has_trend_data:
-        st.info("데이터 관리 탭에서 데이터 수집을 먼저 실행해주세요.")
-    else:
+    if _has_trend_data:
         st.subheader("📊 올해 vs 작년 검색 트렌드 비교")
         st.caption("네이버 데이터랩 비율 × 실제 검색수 기반 추정치")
 
