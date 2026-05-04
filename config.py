@@ -36,6 +36,9 @@ NAVER_AD_BASE_URL    = "https://api.searchad.naver.com"
 # ──────────────────────────────────────────────
 NAVER_CLIENT_ID     = _env("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = _env("NAVER_CLIENT_SECRET")
+print(f"[CONFIG] os.getenv NAVER_CLIENT_ID: {repr(os.getenv('NAVER_CLIENT_ID'))}")
+print(f"[CONFIG] _secrets keys: {list(_secrets.keys())}")
+print(f"[CONFIG] NAVER_CLIENT_ID 최종값 앞4자리: {repr(NAVER_CLIENT_ID[:4])}")
 NAVER_DATALAB_URL   = "https://openapi.naver.com/v1/datalab/search"
 
 # ──────────────────────────────────────────────
