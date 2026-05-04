@@ -5,8 +5,10 @@ Google Sheets 연동 모듈
 - 광고 순위 데이터 저장
 """
 import json
+import time
 import pandas as pd
 import gspread
+from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 
 import config
@@ -15,6 +17,26 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
+
+
+def _retry_on_quota(fn, *args, max_retries: int = 6, base_delay: float = 2.0, **kwargs):
+    """gspread 호출을 429(Quota exceeded) 발생 시 지수 백오프로 재시도.
+    대기 시간: 2 → 4 → 8 → 16 → 32 → 64초. 그래도 실패하면 예외 재발생.
+    429가 아닌 다른 APIError는 즉시 예외 재발생.
+    """
+    for attempt in range(max_retries):
+        try:
+            return fn(*args, **kwargs)
+        except APIError as e:
+            code = None
+            try:
+                code = e.response.status_code
+            except AttributeError:
+                pass
+            if code == 429 and attempt < max_retries - 1:
+                time.sleep(base_delay * (2 ** attempt))
+                continue
+            raise
 
 
 def _get_client() -> gspread.Client:
@@ -34,9 +56,9 @@ def _get_client() -> gspread.Client:
 def _get_or_create_sheet(spreadsheet, sheet_name: str):
     """시트가 없으면 생성"""
     try:
-        return spreadsheet.worksheet(sheet_name)
+        return _retry_on_quota(spreadsheet.worksheet, sheet_name)
     except gspread.WorksheetNotFound:
-        return spreadsheet.add_worksheet(title=sheet_name, rows=5000, cols=50)
+        return _retry_on_quota(spreadsheet.add_worksheet, title=sheet_name, rows=5000, cols=50)
 
 
 def append_weekly_data(df: pd.DataFrame, week_label: str):
@@ -277,16 +299,16 @@ def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
             v = grp["품목"].iloc[0]
             item_map[kw] = "" if pd.isna(v) else str(v)
 
-    existing = ws.get_all_values()
+    existing = _retry_on_quota(ws.get_all_values)
 
     # 헤더에 "keyword" 컬럼이 없으면 시트 초기화 후 새로 작성
     if not existing or "keyword" not in existing[0]:
-        ws.clear()
+        _retry_on_quota(ws.clear)
         header = ["계절", "품목", "keyword", week_label]
         rows = [header]
         for kw, val in rank_map.items():
             rows.append([season_map.get(kw, ""), item_map.get(kw, ""), kw, val])
-        ws.update(range_name="A1", values=rows)
+        _retry_on_quota(ws.update, range_name="A1", values=rows)
         return
 
     header = existing[0]
@@ -309,8 +331,8 @@ def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
         date_col_idx = len(header)
         # 시트 컬럼 수가 부족하면 자동 확장
         if date_col_idx + 1 > ws.col_count:
-            ws.resize(cols=date_col_idx + 10)
-        ws.update_cell(1, date_col_idx + 1, week_label)
+            _retry_on_quota(ws.resize, cols=date_col_idx + 10)
+        _retry_on_quota(ws.update_cell, 1, date_col_idx + 1, week_label)
 
     cells_to_update = []
     new_rows = []
@@ -331,9 +353,9 @@ def append_rank_history(df: pd.DataFrame, week_label: str, sheet_name: str):
             keyword_row[kw] = len(existing) + len(new_rows) - 1  # 중복 방지
 
     if cells_to_update:
-        ws.update_cells(cells_to_update)
+        _retry_on_quota(ws.update_cells, cells_to_update)
     if new_rows:
-        ws.append_rows(new_rows)
+        _retry_on_quota(ws.append_rows, new_rows)
 
 
 def read_rank_history(sheet_name: str) -> pd.DataFrame:
@@ -341,11 +363,11 @@ def read_rank_history(sheet_name: str) -> pd.DataFrame:
     client = _get_client()
     spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
     try:
-        ws = spreadsheet.worksheet(sheet_name)
+        ws = _retry_on_quota(spreadsheet.worksheet, sheet_name)
     except gspread.WorksheetNotFound:
         return pd.DataFrame()
 
-    data = ws.get_all_values()
+    data = _retry_on_quota(ws.get_all_values)
     if len(data) < 2:
         return pd.DataFrame()
 
