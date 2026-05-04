@@ -1605,7 +1605,7 @@ elif selected_menu == "📊 연간 트렌드":
                     _keywords = _kw_df["키워드"].dropna().unique().tolist()
                     _start = (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")
                     _end = datetime.now().strftime("%Y-%m-%d")
-                    st.info(f"키워드 {len(_keywords)}개 수집 시작: {_keywords[:5]}...")
+                    st.info(f"키워드 {len(_keywords)}개 수집 시작")
                     _ratio_df = fetch_datalab_trend(_keywords, _start, _end)
                     _weekly = read_weekly_data()
                     _last_col = [c for c in _weekly.columns if c != "keyword"][-1]
