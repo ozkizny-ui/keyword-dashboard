@@ -166,6 +166,9 @@ def fetch_datalab_trend(
 
     반환: 날짜(date) × 키워드별 비율(ratio) 피벗 DataFrame
     """
+    print(f"[DEBUG] CLIENT_ID 앞4자리: {str(config.NAVER_CLIENT_ID)[:4]!r}")
+    print(f"[DEBUG] CLIENT_SECRET 앞4자리: {str(config.NAVER_CLIENT_SECRET)[:4]!r}")
+    print(f"[DEBUG] CLIENT_ID 길이: {len(str(config.NAVER_CLIENT_ID))}")
     if not start_date:
         start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
     if not end_date:
