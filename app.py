@@ -1601,21 +1601,33 @@ elif selected_menu == "📊 연간 트렌드":
                 try:
                     from naver_api import fetch_datalab_trend, estimate_weekly_search_volume
                     from google_sheets import save_trend_data
+
+                    st.write("1단계: 키워드 목록 로드 중...")
                     _kw_df = read_keyword_dict()
                     _keywords = _kw_df["키워드"].dropna().unique().tolist()
+                    st.write(f"키워드 {len(_keywords)}개 로드 완료")
+
                     _start = (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")
                     _end = datetime.now().strftime("%Y-%m-%d")
-                    st.info(f"키워드 {len(_keywords)}개 수집 시작")
+
+                    st.write("2단계: 네이버 데이터랩 API 호출 중...")
                     _ratio_df = fetch_datalab_trend(_keywords, _start, _end)
+                    st.write(f"트렌드 데이터 수집 완료: {_ratio_df.shape}")
+
                     _weekly = read_weekly_data()
                     _last_col = [c for c in _weekly.columns if c != "keyword"][-1]
                     _monthly = _weekly[["keyword", _last_col]].rename(columns={_last_col: "totalSearchCount"})
+
+                    st.write("3단계: 주간 검색수 추정 중...")
                     _result = estimate_weekly_search_volume(_monthly, _ratio_df)
+                    st.write(f"추정 완료: {_result.shape}")
+
+                    st.write("4단계: 구글시트 저장 중...")
                     save_trend_data(_result)
+                    st.write("저장 완료!")
+
                     st.cache_data.clear()
                     st.success("수집 완료!")
-                    time.sleep(1)
-                    st.rerun()
                 except Exception as e:
                     import traceback
                     st.error(f"수집 오류: {e}")
