@@ -192,8 +192,10 @@ def fetch_datalab_trend(
         }
         try:
             resp = requests.post(config.NAVER_DATALAB_URL, headers=headers, json=body, timeout=30)
+            print(f"[DEBUG] batch {i}: status={resp.status_code}, body={resp.text[:300]}")
             resp.raise_for_status()
             results = resp.json().get("results", [])
+            print(f"[DEBUG] batch {i}: list길이={len(results)}")
             for r in results:
                 kw_name = r["title"]
                 for d in r["data"]:
