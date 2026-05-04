@@ -1603,8 +1603,8 @@ elif selected_menu == "📊 연간 트렌드":
                     from google_sheets import save_trend_data
 
                     st.write("1단계: 키워드 목록 로드 중...")
-                    _kw_df = read_keyword_dict()
-                    _keywords = _kw_df["키워드"].dropna().unique().tolist()
+                    _kw_df = pd.read_excel(config.KEYWORDS_FILE)
+                    _keywords = _kw_df["keywordList"].dropna().unique().tolist()
                     st.write(f"키워드 {len(_keywords)}개 로드 완료")
 
                     _start = (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")
