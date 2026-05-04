@@ -1612,11 +1612,14 @@ elif selected_menu == "📊 연간 트렌드":
 
                     st.write("2단계: 네이버 데이터랩 API 호출 중...")
                     _ratio_df = fetch_datalab_trend(_keywords, _start, _end)
+                    st.write(f"ratio_df 키워드 샘플: {list(_ratio_df.columns[:5])}")
                     st.write(f"트렌드 데이터 수집 완료: {_ratio_df.shape}")
 
                     _weekly = read_weekly_data()
                     _last_col = [c for c in _weekly.columns if c != "keyword"][-1]
                     _monthly = _weekly[["keyword", _last_col]].rename(columns={_last_col: "totalSearchCount"})
+                    st.write(f"monthly 키워드 샘플: {_monthly['keyword'].tolist()[:5]}")
+                    st.write(f"ratio_df 키워드와 monthly 키워드 교집합: {len(set(_ratio_df.columns) & set(_monthly['keyword'].tolist()))}개")
 
                     st.write("3단계: 주간 검색수 추정 중...")
                     _result = estimate_weekly_search_volume(_monthly, _ratio_df)
