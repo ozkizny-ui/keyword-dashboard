@@ -6,6 +6,7 @@ Streamlit 기반 - 주간 검색수 트래킹 & 트렌드 분석
 """
 import os
 import json
+import time
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -533,9 +534,12 @@ def _load_filter_state() -> dict:
         return {}
 
 def _save_filter_state(state: dict):
+    # 부분 갱신: 기존 파일과 merge하여 다른 탭(주간/연간)의 키를 보존
     try:
+        existing = _load_filter_state()
+        existing.update(state)
         with open(_FILTER_FILE, "w", encoding="utf-8") as _f:
-            json.dump(state, _f, ensure_ascii=False, indent=2)
+            json.dump(existing, _f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
@@ -972,13 +976,19 @@ def _render_rank_tab(
             _last_saved = load_setting(f"last_saved_{uploader_key}", "")
             if st.button(f"📤 Google Sheets에 저장 (전체 {len(all_save_data)}주차)", key=f"save_{uploader_key}"):
                 try:
-                    for _lbl in valid_labels:
-                        if _lbl in all_save_data and not all_save_data[_lbl].empty:
-                            append_rank_history(all_save_data[_lbl], _lbl, sheet_name)
+                    _weeks_to_save = [l for l in valid_labels if l in all_save_data and not all_save_data[l].empty]
+                    _prog = st.progress(0.0, text="저장 중…")
+                    for _i, _lbl in enumerate(_weeks_to_save):
+                        append_rank_history(all_save_data[_lbl], _lbl, sheet_name)
+                        _prog.progress((_i + 1) / max(len(_weeks_to_save), 1), text=f"저장 중… {_i + 1}/{len(_weeks_to_save)}")
+                        # 주차 간 짧은 간격으로 분당 읽기 쿼터(기본 60회/분/사용자) 버스트 완화
+                        if _i < len(_weeks_to_save) - 1:
+                            time.sleep(0.8)
+                    _prog.empty()
                     _now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
                     save_setting(f"last_saved_{uploader_key}", _now_str)
                     st.cache_data.clear()
-                    st.success(f"저장 완료! (총 {len(all_save_data)}주차)")
+                    st.success(f"저장 완료! (총 {len(_weeks_to_save)}주차)")
                     st.rerun()
                 except Exception as _save_err:
                     st.error(f"저장 실패: {_save_err}")
@@ -1528,17 +1538,85 @@ elif selected_menu == "📊 연간 트렌드":
     _s_opts = sorted(meta_df["계절"].dropna().unique().tolist()) if "계절" in meta_df.columns else []
     _c_opts = sorted(meta_df["카테고리"].dropna().unique().tolist()) if "카테고리" in meta_df.columns else []
     _g_opts = sorted(meta_df["성별/나이"].dropna().unique().tolist()) if "성별/나이" in meta_df.columns else []
+
+    # URL query parameter 헬퍼: 콤마 구분 문자열 → list (빈 토큰 제거)
+    def _qp_list(qp_key: str) -> list:
+        raw = st.query_params.get(qp_key, "")
+        if not raw:
+            return []
+        return [v for v in raw.split(",") if v]
+
+    # session_state 초기화: 처음엔 URL query param에서 로드, 이후엔 stale 값만 정리
+    if "annual_season" not in st.session_state:
+        st.session_state["annual_season"] = [v for v in _qp_list("ann_season") if v in _s_opts]
+    else:
+        st.session_state["annual_season"] = [v for v in st.session_state["annual_season"] if v in _s_opts]
+    if "annual_category" not in st.session_state:
+        st.session_state["annual_category"] = [v for v in _qp_list("ann_cat") if v in _c_opts]
+    else:
+        st.session_state["annual_category"] = [v for v in st.session_state["annual_category"] if v in _c_opts]
+    if "annual_gender" not in st.session_state:
+        st.session_state["annual_gender"] = [v for v in _qp_list("ann_gender") if v in _g_opts]
+    else:
+        st.session_state["annual_gender"] = [v for v in st.session_state["annual_gender"] if v in _g_opts]
+
+    def _persist_annual_state():
+        # 변경 시 4개 키를 URL query param에 일괄 저장 (브라우저 새로고침/공유 시에도 유지)
+        st.query_params["ann_season"] = ",".join(st.session_state.get("annual_season", []))
+        st.query_params["ann_cat"] = ",".join(st.session_state.get("annual_category", []))
+        st.query_params["ann_gender"] = ",".join(st.session_state.get("annual_gender", []))
+        st.query_params["ann_kw"] = ",".join(st.session_state.get("annual_keywords", []))
+
     _tf1, _tf2, _tf3, _tf4 = st.columns(4)
     with _tf1:
-        selected_seasons = st.multiselect("계절", _s_opts, placeholder="전체", key="t_seasons")
+        selected_seasons = st.multiselect(
+            "계절", _s_opts, placeholder="전체",
+            key="annual_season", on_change=_persist_annual_state,
+        )
     with _tf2:
-        selected_categories = st.multiselect("카테고리", _c_opts, placeholder="전체", key="t_categories")
+        selected_categories = st.multiselect(
+            "카테고리", _c_opts, placeholder="전체",
+            key="annual_category", on_change=_persist_annual_state,
+        )
     with _tf3:
-        selected_genders = st.multiselect("성별/나이", _g_opts, placeholder="전체", key="t_genders")
+        selected_genders = st.multiselect(
+            "성별/나이", _g_opts, placeholder="전체",
+            key="annual_gender", on_change=_persist_annual_state,
+        )
     with _tf4:
         keyword_search = st.text_input("🔎 키워드 검색", placeholder="키워드명 입력...", key="t_kw_search")
 
     trend_df = load_trend()
+
+    _col1, _col2 = st.columns([3, 1])
+    with _col1:
+        if not trend_df.empty and "date" in trend_df.columns:
+            _last_date = pd.to_datetime(trend_df["date"]).max()
+            st.caption(f"마지막 수집: {_last_date.strftime('%Y-%m-%d')}")
+        else:
+            st.caption("수집된 데이터 없음")
+    with _col2:
+        if st.button("🔄 최신 데이터 수집", use_container_width=True):
+            with st.spinner("데이터 수집 중... 키워드 수에 따라 1~2분 소요됩니다"):
+                try:
+                    from naver_api import fetch_datalab_trend, estimate_weekly_search_volume
+                    from google_sheets import save_trend_data
+                    _kw_df = read_keyword_dict()
+                    _keywords = _kw_df["키워드"].dropna().unique().tolist()
+                    _start = (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")
+                    _end = datetime.now().strftime("%Y-%m-%d")
+                    _ratio_df = fetch_datalab_trend(_keywords, _start, _end)
+                    _weekly = read_weekly_data()
+                    _last_col = [c for c in _weekly.columns if c != "keyword"][-1]
+                    _monthly = _weekly[["keyword", _last_col]].rename(columns={_last_col: "totalSearchCount"})
+                    _result = estimate_weekly_search_volume(_monthly, _ratio_df)
+                    save_trend_data(_result)
+                    st.cache_data.clear()
+                    st.success("수집 완료!")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"수집 오류: {e}")
 
     _has_trend_data = (
         not trend_df.empty
@@ -1582,25 +1660,40 @@ elif selected_menu == "📊 연간 트렌드":
         if not avail_kws:
             st.info("데이터 관리 탭에서 데이터 수집을 먼저 실행해주세요.")
         else:
-            _weekly_for_default = load_weekly()
-            _w_cols = [c for c in _weekly_for_default.columns if c != "keyword"]
-            if _w_cols:
-                _trend_defaults = (
-                    _weekly_for_default[_weekly_for_default["keyword"].isin(avail_kws)]
-                    [["keyword", _w_cols[-1]]]
-                    .rename(columns={_w_cols[-1]: "_vol"})
-                    .sort_values("_vol", ascending=False)["keyword"]
-                    .head(3)
-                    .tolist()
-                )
+            # 키워드 초기화 우선순위:
+            #   1) session_state에 이미 있음 → pool 기준으로 stale 항목만 prune
+            #   2) URL query param에 ann_kw 키가 있음 (빈 값 포함) → 사용자 의도로 존중하고 prune
+            #   3) URL에도 없음 (진짜 첫 방문) → 주간 검색수 상위 3개로 초기화
+            if "annual_keywords" in st.session_state:
+                st.session_state["annual_keywords"] = [
+                    k for k in st.session_state["annual_keywords"] if k in avail_kws
+                ]
+            elif "ann_kw" in st.query_params:
+                st.session_state["annual_keywords"] = [
+                    k for k in _qp_list("ann_kw") if k in avail_kws
+                ]
             else:
-                _trend_defaults = avail_kws[:3]
+                _weekly_for_default = load_weekly()
+                _w_cols = [c for c in _weekly_for_default.columns if c != "keyword"]
+                if _w_cols:
+                    _trend_defaults = (
+                        _weekly_for_default[_weekly_for_default["keyword"].isin(avail_kws)]
+                        [["keyword", _w_cols[-1]]]
+                        .rename(columns={_w_cols[-1]: "_vol"})
+                        .sort_values("_vol", ascending=False)["keyword"]
+                        .head(3)
+                        .tolist()
+                    )
+                else:
+                    _trend_defaults = avail_kws[:3]
+                st.session_state["annual_keywords"] = _trend_defaults
+
             trend_selected = st.multiselect(
                 "키워드 선택 (최대 5개)",
                 avail_kws,
-                default=_trend_defaults,
                 max_selections=5,
-                key="trend_kw",
+                key="annual_keywords",
+                on_change=_persist_annual_state,
             )
 
             if trend_selected:
