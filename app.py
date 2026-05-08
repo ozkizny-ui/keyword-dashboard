@@ -1625,15 +1625,10 @@ elif selected_menu == "📊 연간 트렌드":
                         st.write(f"monthly 키워드 샘플: {_monthly['keyword'].tolist()[:5]}")
                         st.write(f"교집합: {len(set(_ratio_df.columns) & set(_monthly['keyword'].tolist()))}개")
                         _result = estimate_weekly_search_volume(_monthly, _ratio_df)
-
-                        st.write("4단계: 구글시트 저장 중...")
+                        st.write(f"result shape: {_result.shape}")
                         save_trend_data(_result)
                         st.write("저장 완료!")
-
-                        st.success("수집 완료!")
-                        time.sleep(2)
-                        st.cache_data.clear()
-                        st.rerun()
+                        st.success("수집 완료! 페이지를 직접 새로고침(F5)해주세요.")
                 except Exception as e:
                     import traceback
                     st.error(f"수집 오류: {e}")
