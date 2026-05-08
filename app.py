@@ -1627,22 +1627,15 @@ elif selected_menu == "📊 연간 트렌드":
                         save_trend_data(_result)
                         st.write("저장 완료!")
 
-                        st.cache_data.clear()
                         st.success("수집 완료!")
+                        st.cache_data.clear()
+                        st.rerun()
                 except Exception as e:
                     import traceback
                     st.error(f"수집 오류: {e}")
                     st.code(traceback.format_exc())
 
-    _has_trend_data = (
-        not trend_df.empty
-        and "keyword" in trend_df.columns
-        and "estimated_weekly_volume" in trend_df.columns
-        and "date" in trend_df.columns
-        and trend_df["keyword"].notna().any()
-    )
-
-    if _has_trend_data:
+    if not trend_df.empty:
         st.subheader("📊 올해 vs 작년 검색 트렌드 비교")
         st.caption("네이버 데이터랩 비율 × 실제 검색수 기반 추정치")
 
@@ -1795,6 +1788,8 @@ elif selected_menu == "📊 연간 트렌드":
                             )
                             fig2.update_layout(height=350)
                             st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False, "scrollZoom": False})
+    else:
+        st.info("수집 버튼을 눌러 데이터를 가져오세요.")
 
 
 # ── 쇼핑검색 순위 ──
