@@ -1616,9 +1616,15 @@ elif selected_menu == "📊 연간 트렌드":
                     if _ratio_df.empty or len(_ratio_df.columns) <= 1:
                         st.error("API 호출 실패 또는 한도 초과. 잠시 후 다시 시도해주세요.")
                     else:
-                        _weekly = read_weekly_data()
-                        _last_col = [c for c in _weekly.columns if c != "keyword"][-1]
-                        _monthly = _weekly[["keyword", _last_col]].rename(columns={_last_col: "totalSearchCount"})
+                        _kw_dict = read_keyword_dict()
+                        _date_cols = [c for c in _kw_dict.columns if str(c).count('.') >= 2]
+                        if not _date_cols:
+                            st.error("키워드사전에 주간 데이터 컬럼이 없습니다.")
+                            st.stop()
+                        _last_col = _date_cols[-1]
+                        st.write(f"사용할 주차: {_last_col}")
+                        _monthly = _kw_dict[["키워드", _last_col]].rename(columns={"키워드": "keyword", _last_col: "totalSearchCount"})
+                        _monthly["totalSearchCount"] = pd.to_numeric(_monthly["totalSearchCount"], errors="coerce").fillna(0)
                         st.write(f"_last_col: {_last_col}")
                         st.write(f"monthly totalSearchCount 샘플: {_monthly['totalSearchCount'].tolist()[:5]}")
                         st.write(f"monthly totalSearchCount가 0인 행 수: {(_monthly['totalSearchCount'] == 0).sum()}")
