@@ -1619,6 +1619,9 @@ elif selected_menu == "📊 연간 트렌드":
                         _weekly = read_weekly_data()
                         _last_col = [c for c in _weekly.columns if c != "keyword"][-1]
                         _monthly = _weekly[["keyword", _last_col]].rename(columns={_last_col: "totalSearchCount"})
+                        st.write(f"_last_col: {_last_col}")
+                        st.write(f"monthly totalSearchCount 샘플: {_monthly['totalSearchCount'].tolist()[:5]}")
+                        st.write(f"monthly totalSearchCount가 0인 행 수: {(_monthly['totalSearchCount'] == 0).sum()}")
 
                         st.write("3단계: 주간 검색수 추정 중...")
                         st.write(f"ratio_df 컬럼: {list(_ratio_df.columns[:5])}")
