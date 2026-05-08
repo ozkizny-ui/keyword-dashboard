@@ -1621,6 +1621,9 @@ elif selected_menu == "📊 연간 트렌드":
                         _monthly = _weekly[["keyword", _last_col]].rename(columns={_last_col: "totalSearchCount"})
 
                         st.write("3단계: 주간 검색수 추정 중...")
+                        st.write(f"ratio_df 컬럼: {list(_ratio_df.columns[:5])}")
+                        st.write(f"monthly 키워드 샘플: {_monthly['keyword'].tolist()[:5]}")
+                        st.write(f"교집합: {len(set(_ratio_df.columns) & set(_monthly['keyword'].tolist()))}개")
                         _result = estimate_weekly_search_volume(_monthly, _ratio_df)
 
                         st.write("4단계: 구글시트 저장 중...")
@@ -1628,6 +1631,7 @@ elif selected_menu == "📊 연간 트렌드":
                         st.write("저장 완료!")
 
                         st.success("수집 완료!")
+                        time.sleep(2)
                         st.cache_data.clear()
                         st.rerun()
                 except Exception as e:
