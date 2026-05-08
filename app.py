@@ -1585,11 +1585,11 @@ elif selected_menu == "📊 연간 트렌드":
             key="annual_gender", on_change=_persist_annual_state,
         )
     with _tf4:
-        if not trend_df.empty and "date" in trend_df.columns:
-            _last_date = pd.to_datetime(trend_df["date"]).max()
-            st.caption(f"마지막 수집: {_last_date.strftime('%Y-%m-%d')}")
+        _last_collected = read_setting("trend_last_collected", "")
+        if _last_collected:
+            st.markdown(f"**마지막 수집: {_last_collected}**")
         else:
-            st.caption("수집된 데이터 없음")
+            st.markdown("**수집된 데이터 없음**")
         if st.button("🔄 최신 데이터 수집", use_container_width=True):
             with st.spinner("데이터 수집 중... 키워드 수에 따라 1~2분 소요됩니다"):
                 try:
@@ -1630,6 +1630,7 @@ elif selected_menu == "📊 연간 트렌드":
                         _result = estimate_weekly_search_volume(_monthly, _ratio_df)
                         st.write(f"result shape: {_result.shape}")
                         save_trend_data(_result)
+                        save_setting("trend_last_collected", datetime.now(KST).strftime("%Y-%m-%d %H:%M"))
                         st.write("저장 완료!")
                         st.success("수집 완료! 페이지를 직접 새로고침(F5)해주세요.")
                 except Exception as e:
