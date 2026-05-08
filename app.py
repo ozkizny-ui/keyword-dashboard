@@ -1566,6 +1566,8 @@ elif selected_menu == "📊 연간 트렌드":
         st.query_params["ann_gender"] = ",".join(st.session_state.get("annual_gender", []))
         st.query_params["ann_kw"] = ",".join(st.session_state.get("annual_keywords", []))
 
+    trend_df = load_trend()
+
     _tf1, _tf2, _tf3, _tf4 = st.columns(4)
     with _tf1:
         selected_seasons = st.multiselect(
@@ -1583,18 +1585,11 @@ elif selected_menu == "📊 연간 트렌드":
             key="annual_gender", on_change=_persist_annual_state,
         )
     with _tf4:
-        keyword_search = st.text_input("🔎 키워드 검색", placeholder="키워드명 입력...", key="t_kw_search")
-
-    trend_df = load_trend()
-
-    _col1, _col2 = st.columns([3, 1])
-    with _col1:
         if not trend_df.empty and "date" in trend_df.columns:
             _last_date = pd.to_datetime(trend_df["date"]).max()
             st.caption(f"마지막 수집: {_last_date.strftime('%Y-%m-%d')}")
         else:
             st.caption("수집된 데이터 없음")
-    with _col2:
         if st.button("🔄 최신 데이터 수집", use_container_width=True):
             with st.spinner("데이터 수집 중... 키워드 수에 따라 1~2분 소요됩니다"):
                 try:
