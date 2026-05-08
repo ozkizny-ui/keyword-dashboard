@@ -393,7 +393,6 @@ def load_weekly():
     # fallback: 기존 주간검색수 시트
     return read_weekly_data()
 
-@st.cache_data(ttl=300)
 def load_trend():
     return read_trend_data()
 
