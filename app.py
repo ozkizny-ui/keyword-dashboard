@@ -1538,33 +1538,38 @@ elif selected_menu == "📊 연간 트렌드":
     _c_opts = sorted(meta_df["카테고리"].dropna().unique().tolist()) if "카테고리" in meta_df.columns else []
     _g_opts = sorted(meta_df["성별/나이"].dropna().unique().tolist()) if "성별/나이" in meta_df.columns else []
 
-    # URL query parameter 헬퍼: 콤마 구분 문자열 → list (빈 토큰 제거)
-    def _qp_list(qp_key: str) -> list:
-        raw = st.query_params.get(qp_key, "")
+    # 설정 시트 헬퍼: 콤마 구분 문자열 → list (빈 토큰 제거)
+    def _setting_list(setting_key: str) -> list:
+        raw = read_setting(setting_key, "")
         if not raw:
             return []
         return [v for v in raw.split(",") if v]
 
-    # session_state 초기화: 처음엔 URL query param에서 로드, 이후엔 stale 값만 정리
+    # session_state 초기화: 처음엔 구글시트 설정탭에서 로드, 이후엔 stale 값만 정리
     if "annual_season" not in st.session_state:
-        st.session_state["annual_season"] = [v for v in _qp_list("ann_season") if v in _s_opts]
+        st.session_state["annual_season"] = [v for v in _setting_list("ann_season") if v in _s_opts]
     else:
         st.session_state["annual_season"] = [v for v in st.session_state["annual_season"] if v in _s_opts]
     if "annual_category" not in st.session_state:
-        st.session_state["annual_category"] = [v for v in _qp_list("ann_cat") if v in _c_opts]
+        st.session_state["annual_category"] = [v for v in _setting_list("ann_category") if v in _c_opts]
     else:
         st.session_state["annual_category"] = [v for v in st.session_state["annual_category"] if v in _c_opts]
     if "annual_gender" not in st.session_state:
-        st.session_state["annual_gender"] = [v for v in _qp_list("ann_gender") if v in _g_opts]
+        st.session_state["annual_gender"] = [v for v in _setting_list("ann_gender") if v in _g_opts]
     else:
         st.session_state["annual_gender"] = [v for v in st.session_state["annual_gender"] if v in _g_opts]
 
-    def _persist_annual_state():
-        # 변경 시 4개 키를 URL query param에 일괄 저장 (브라우저 새로고침/공유 시에도 유지)
-        st.query_params["ann_season"] = ",".join(st.session_state.get("annual_season", []))
-        st.query_params["ann_cat"] = ",".join(st.session_state.get("annual_category", []))
-        st.query_params["ann_gender"] = ",".join(st.session_state.get("annual_gender", []))
-        st.query_params["ann_kw"] = ",".join(st.session_state.get("annual_keywords", []))
+    def _persist_annual_season():
+        save_setting("ann_season", ",".join(st.session_state.get("annual_season", [])))
+
+    def _persist_annual_category():
+        save_setting("ann_category", ",".join(st.session_state.get("annual_category", [])))
+
+    def _persist_annual_gender():
+        save_setting("ann_gender", ",".join(st.session_state.get("annual_gender", [])))
+
+    def _persist_annual_keywords():
+        save_setting("ann_keywords", ",".join(st.session_state.get("annual_keywords", [])))
 
     trend_df = load_trend()
 
@@ -1572,17 +1577,17 @@ elif selected_menu == "📊 연간 트렌드":
     with _tf1:
         selected_seasons = st.multiselect(
             "계절", _s_opts, placeholder="전체",
-            key="annual_season", on_change=_persist_annual_state,
+            key="annual_season", on_change=_persist_annual_season,
         )
     with _tf2:
         selected_categories = st.multiselect(
             "카테고리", _c_opts, placeholder="전체",
-            key="annual_category", on_change=_persist_annual_state,
+            key="annual_category", on_change=_persist_annual_category,
         )
     with _tf3:
         selected_genders = st.multiselect(
             "성별/나이", _g_opts, placeholder="전체",
-            key="annual_gender", on_change=_persist_annual_state,
+            key="annual_gender", on_change=_persist_annual_gender,
         )
     with _tf4:
         _last_collected = read_setting("trend_last_collected", "")
@@ -1672,15 +1677,16 @@ elif selected_menu == "📊 연간 트렌드":
         else:
             # 키워드 초기화 우선순위:
             #   1) session_state에 이미 있음 → pool 기준으로 stale 항목만 prune
-            #   2) URL query param에 ann_kw 키가 있음 (빈 값 포함) → 사용자 의도로 존중하고 prune
-            #   3) URL에도 없음 (진짜 첫 방문) → 주간 검색수 상위 3개로 초기화
+            #   2) 구글시트 설정탭에 ann_keywords가 있음 → 사용자 의도로 존중하고 prune
+            #   3) 설정에도 없음 (진짜 첫 방문) → 주간 검색수 상위 3개로 초기화
+            _saved_kw = _setting_list("ann_keywords")
             if "annual_keywords" in st.session_state:
                 st.session_state["annual_keywords"] = [
                     k for k in st.session_state["annual_keywords"] if k in avail_kws
                 ]
-            elif "ann_kw" in st.query_params:
+            elif _saved_kw:
                 st.session_state["annual_keywords"] = [
-                    k for k in _qp_list("ann_kw") if k in avail_kws
+                    k for k in _saved_kw if k in avail_kws
                 ]
             else:
                 _weekly_for_default = load_weekly()
@@ -1703,7 +1709,7 @@ elif selected_menu == "📊 연간 트렌드":
                 avail_kws,
                 max_selections=5,
                 key="annual_keywords",
-                on_change=_persist_annual_state,
+                on_change=_persist_annual_keywords,
             )
 
             if trend_selected:
