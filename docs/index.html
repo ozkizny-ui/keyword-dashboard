@@ -105,6 +105,8 @@ tbody tr:hover{background:var(--surface2)}
 .ms-list.open{display:block}
 .ms-list label{display:flex;gap:7px;align-items:center;padding:5px 8px;border-radius:7px;font-size:.8rem;font-weight:500;cursor:pointer}
 .ms-list label:hover{background:var(--surface2)}
+.ms-list label{white-space:nowrap}
+.ms-list label input[type="checkbox"]{width:auto;flex:0 0 auto;margin:0}
 .ms-search{width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:7px;font-size:.78rem;margin-bottom:5px;outline:none}
 .cap-note{font-size:.72rem;color:var(--muted);margin:6px 2px 0}
 .rank-search{padding:8px 11px;border:1px solid var(--border2);border-radius:9px;font-size:.82rem;outline:none;min-width:240px;margin-bottom:8px}
@@ -320,7 +322,19 @@ const STATE = {weekly:[], weekCols:[], meta:{}};
 const FILTER = JSON.parse(localStorage.getItem("kw_filters")||"{}");
 FILTER.seasons??=[]; FILTER.categories??=[]; FILTER.genders??=[]; FILTER.search="";
 const charts = {};
-function saveFilters(){ localStorage.setItem("kw_filters", JSON.stringify({seasons:FILTER.seasons,categories:FILTER.categories,genders:FILTER.genders})); }
+// 설정을 구글시트(설정 시트)에 저장 → 다른 PC·창에서도 유지. 디바운스 + 로컬캐시.
+const _saveTimers={};
+function saveSetting(key,value){
+  STATE.settings = STATE.settings || {};
+  STATE.settings[key]=value;
+  try{ localStorage.setItem("kw_"+key, value); }catch(e){}
+  if(!CONFIG.API_URL) return;
+  clearTimeout(_saveTimers[key]);
+  _saveTimers[key]=setTimeout(()=>{ apiPost({action:"save_setting",key,value}).catch(()=>{}); }, 700);
+}
+function saveFilters(){
+  saveSetting("ui_weekly_filters", JSON.stringify({seasons:FILTER.seasons,categories:FILTER.categories,genders:FILTER.genders}));
+}
 
 const SEASON_BY_MONTH={12:"겨울",1:"겨울",2:"겨울",3:"봄",4:"봄",5:"봄",6:"여름",7:"여름",8:"여름",9:"가을",10:"가을",11:"가을"};
 const NEXT_SEASON={"봄":"여름","여름":"가을","가을":"겨울","겨울":"봄"};
@@ -609,7 +623,7 @@ async function renderTrend(){
     <div class="ms-pop" id="trend2-pick" style="max-width:380px;margin-bottom:10px"></div>
     <div class="card"><div class="chart-box" style="height:460px"><canvas id="c-trend2"></canvas></div></div>`;
   const draw=()=>drawYoY(map,curY,lastY,picked);
-  buildMultiselect(document.getElementById("trend2-pick"), kws, picked, ()=>{ if(picked.length>5)picked.length=5; draw(); });
+  buildMultiselect(document.getElementById("trend2-pick"), kws, picked, ()=>{ if(picked.length>5)picked.length=5; draw(); saveSetting("ann_keywords", picked.join(",")); });
   draw();
 }
 function drawYoY(map,curY,lastY,picked){
@@ -812,6 +826,9 @@ async function boot(){
   try{
     const [kd, settings] = await Promise.all([ api("keyword_dict"), api("settings").catch(()=>({})) ]);
     STATE.settings = settings || {};
+    // 저장된 주간 필터 복원 (시트 우선, 없으면 로컬캐시) → 다른 PC에서도 동일
+    const wf = STATE.settings["ui_weekly_filters"] || (function(){try{return localStorage.getItem("kw_ui_weekly_filters");}catch(e){return null;}})();
+    if(wf){ try{ const o=JSON.parse(wf); FILTER.seasons=o.seasons||[]; FILTER.categories=o.categories||[]; FILTER.genders=o.genders||[]; }catch(e){} }
     const {weekly, weekCols, meta} = parseKeywordDict(kd);
     Object.assign(STATE,{weekly,weekCols,meta});
     document.getElementById("connState").textContent = CONFIG.API_URL ? "연결됨" : "목업 모드";
