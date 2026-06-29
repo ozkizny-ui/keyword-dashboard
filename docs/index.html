@@ -346,9 +346,6 @@ function renderWeekly(){
     </div>
     <div class="grid2" id="movers"></div>
     <div class="divider"></div>
-    <div class="subhead">🔢 키워드별 검색수 순위</div>
-    <div id="rank-table"></div>
-    <div class="divider"></div>
     <div class="subhead">📋 전체 데이터</div>
     <div id="full-table"></div>
   `;
@@ -405,19 +402,8 @@ function renderPeriodSections(filtered, cols){
                       <div><div class="subhead">❄️ 급하락 TOP 100</div>${moverTbl(down)}</div>`;
   } else movers.innerHTML="";
 
-  // 순위표
-  const latest=cols[cols.length-1], prev=cols.length>=2?cols[cols.length-2]:null;
-  const rateMap={}; ch.forEach(c=>rateMap[c.keyword]=c.변화율);
-  const rankRows=[...sub].sort((a,b)=>b[latest]-a[latest]);
-  const CAP=500, rShown=rankRows.slice(0,CAP);
-  document.getElementById("rank-table").innerHTML=`<div class="metric"><b>${rankRows.length}</b>개 키워드</div>
-    <div class="tbl-wrap scroll-box"><table><thead><tr><th>순위</th><th class="lcell">키워드</th><th>지난주</th><th>이번주</th><th>변화율</th></tr></thead><tbody>
-    ${rShown.map((r,i)=>`<tr><td>${i+1}</td><td class="lcell">${r.keyword}</td><td>${prev?fmt(r[prev]):'-'}</td><td>${fmt(r[latest])}</td>
-      <td class="${rateMap[r.keyword]>0?'up':rateMap[r.keyword]<0?'down':'flat'}">${pct(rateMap[r.keyword])}</td></tr>`).join("")}
-    </tbody></table></div>${rankRows.length>CAP?`<div class="cap-note">전체 ${fmt(rankRows.length)}개 중 상위 ${CAP}개 표시 — 위의 계절/카테고리/검색 필터로 좁혀보세요.</div>`:""}`;
-
   // 전체 데이터 (최신 주차가 왼쪽 → 과거가 오른쪽)
-  const fShown=sub.slice(0,CAP);
+  const CAP=500, fShown=sub.slice(0,CAP);
   const dispCols=[...cols].reverse();
   document.getElementById("full-table").innerHTML=`<div class="tbl-wrap scroll-box"><table><thead><tr>
     <th class="lcell">키워드</th>${dispCols.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>
