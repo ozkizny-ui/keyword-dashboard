@@ -404,11 +404,12 @@ function renderPeriodSections(filtered, cols){
       <td class="${rateMap[r.keyword]>0?'up':rateMap[r.keyword]<0?'down':'flat'}">${pct(rateMap[r.keyword])}</td></tr>`).join("")}
     </tbody></table></div>${rankRows.length>CAP?`<div class="cap-note">전체 ${fmt(rankRows.length)}개 중 상위 ${CAP}개 표시 — 위의 계절/카테고리/검색 필터로 좁혀보세요.</div>`:""}`;
 
-  // 전체 데이터
+  // 전체 데이터 (최신 주차가 왼쪽 → 과거가 오른쪽)
   const fShown=sub.slice(0,CAP);
+  const dispCols=[...cols].reverse();
   document.getElementById("full-table").innerHTML=`<div class="tbl-wrap scroll-box"><table><thead><tr>
-    <th class="lcell">키워드</th>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>
-    ${fShown.map(r=>`<tr><td class="lcell">${r.keyword}</td>${cols.map(c=>`<td>${fmt(r[c])}</td>`).join("")}</tr>`).join("")}
+    <th class="lcell">키워드</th>${dispCols.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>
+    ${fShown.map(r=>`<tr><td class="lcell">${r.keyword}</td>${dispCols.map(c=>`<td>${fmt(r[c])}</td>`).join("")}</tr>`).join("")}
     </tbody></table></div>${sub.length>CAP?`<div class="cap-note">전체 ${fmt(sub.length)}개 중 상위 ${CAP}개 표시 — 필터로 좁혀보세요.</div>`:""}`;
 }
 
