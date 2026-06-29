@@ -520,11 +520,11 @@ function drawTop10(filtered, weekCols){
   destroy("c-top10");
   if(!weekCols.length) return;
   const latest=weekCols[weekCols.length-1];
-  const top=[...filtered].sort((a,b)=>b[latest]-a[latest]).slice(0,10).reverse();
+  const top=[...filtered].sort((a,b)=>b[latest]-a[latest]).slice(0,10); // 내림차순: 1위가 맨 위
   charts["c-top10"]=new Chart(document.getElementById("c-top10"),{
     type:"bar",
     data:{labels:top.map(t=>t.keyword),datasets:[{data:top.map(t=>t[latest]),
-      backgroundColor:top.map((_,i)=>`rgba(91,79,212,${.35+i/top.length*.6})`),borderRadius:5}]},
+      backgroundColor:top.map((_,i)=>`rgba(91,79,212,${(.35+(top.length-1-i)/Math.max(top.length-1,1)*.55).toFixed(2)})`),borderRadius:5}]},
     options:{indexAxis:"y",maintainAspectRatio:false,plugins:{legend:{display:false},
       datalabels:{anchor:"end",align:"end",color:"var(--muted)",font:{size:10},formatter:v=>fmt(v)},
       tooltip:{callbacks:{label:c=>fmt(c.parsed.x)}}},
