@@ -204,6 +204,56 @@ async function api(action, params={}){
   if(!res.ok) throw new Error("HTTP "+res.status);
   return res.json();
 }
+// 쓰기는 text/plain 으로 보내 CORS 프리플라이트 회피 (Apps Script doPost가 본문 JSON 파싱)
+async function apiPost(body){
+  if(!CONFIG.API_URL) throw new Error("API 미설정");
+  const res = await fetch(CONFIG.API_URL, {method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify(body)});
+  if(!res.ok) throw new Error("HTTP "+res.status);
+  return res.json();
+}
+
+/* ── 네이버 검색광고 리포트 CSV 파서 (ad_rank_parser.py 포팅) ── */
+function decodeBuf(buf){
+  let t=new TextDecoder("utf-8").decode(buf);
+  if(t.includes("�")){ try{ t=new TextDecoder("euc-kr").decode(buf); }catch(e){} }
+  return t.replace(/^﻿/,"");
+}
+function csvLine(line){ const out=[];let cur="",q=false;
+  for(let i=0;i<line.length;i++){const c=line[i];
+    if(q){ if(c==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else { if(c==='"')q=true; else if(c===","){out.push(cur);cur="";} else cur+=c; } }
+  out.push(cur); return out; }
+function csvParse(t){ return t.split(/\r\n|\n|\r/).filter(l=>l.length).map(csvLine); }
+function findCol(H,cands){ const cl=H.map(h=>String(h).trim().replace(/\s/g,""));
+  for(let i=0;i<cl.length;i++) if(cands.includes(cl[i])) return i;
+  for(let i=0;i<cl.length;i++) for(const c of cands) if(cl[i].includes(c)) return i; return -1; }
+function num(v){ const n=parseFloat(String(v==null?"":v).replace(/,/g,"").trim()); return isNaN(n)?0:n; }
+function parseAdReport(rows, adType){
+  if(rows.length<2) return {rows:[], week:""};
+  const m=rows[0].join(" ").match(/(\d{4}\.\d{2}\.\d{2})\.?\s*~\s*(\d{4}\.\d{2}\.\d{2})/);
+  const week=m?`${m[1]}-${m[2]}`:"";
+  const H=rows[1];
+  const ci={camp:findCol(H,["캠페인유형"]),media:findCol(H,["PC/모바일매체","PC/모바일","모바일매체"]),
+    kw:findCol(H,["키워드"]),query:findCol(H,["검색어"]),rank:findCol(H,["평균노출순위","평균순위","노출순위","순위"])};
+  const agg={};
+  for(let r=2;r<rows.length;r++){ const row=rows[r]; if(!row||!row.length) continue;
+    if(ci.media>=0 && !String(row[ci.media]||"").includes("모바일")) continue;
+    if(ci.camp>=0 && String(row[ci.camp]||"").includes("플레이스")) continue;
+    const kwIdx = adType==="shopping" ? (ci.query>=0?ci.query:ci.kw) : (ci.kw>=0?ci.kw:ci.query);
+    const kw=String(row[kwIdx]||"").trim();
+    if(!kw||kw==="nan"||kw==="-") continue;
+    const rk=ci.rank>=0?num(row[ci.rank]):0;
+    (agg[kw]=agg[kw]||{s:0,n:0}).s+=rk; agg[kw].n++;
+  }
+  return {rows:Object.keys(agg).map(kw=>({keyword:kw, avg_rank:Math.round(agg[kw].s/agg[kw].n*10)/10})), week};
+}
+function thisWeekLabel(){ // 월~일 (수집 라벨 기본값, 편집 가능)
+  const f=t=>new Intl.DateTimeFormat("en-CA",{timeZone:KST,year:"numeric",month:"2-digit",day:"2-digit"}).format(t).replace(/-/g,".");
+  const wd=new Intl.DateTimeFormat("en-US",{timeZone:KST,weekday:"short"}).format(new Date());
+  const idx={Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6}[wd]||0;
+  const mon=new Date(Date.now()-idx*864e5), sun=new Date(mon.getTime()+6*864e5);
+  return `${f(mon)}-${f(sun)}`;
+}
 
 /* ── 데이터 모델: 키워드사전 {header, rows} → weekly/meta ────── */
 function parseKeywordDict(kd){
@@ -603,6 +653,12 @@ async function renderRank(type){
   body.innerHTML=`
     <div class="card-title" style="margin-top:6px">${title}</div>
     <div style="font-size:.74rem;color:var(--muted);margin:4px 0 10px">숫자=평균 노출순위(낮을수록 상위) · 빈칸=미노출 · 🔺상승 🔻하락 (최신 주차)</div>
+    <div class="card" style="margin-bottom:14px">
+      <div style="font-weight:700;font-size:.86rem;margin-bottom:8px">📤 리포트 CSV 업로드 (새 주차 순위 추가)</div>
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:8px">네이버 검색광고 → 보고서 CSV. 모바일·평균노출순위 기준으로 ${type==="shopping"?"검색어":"키워드"}별 집계해 저장합니다.</div>
+      <input type="file" id="${type}-file" accept=".csv,text/csv" style="font-size:.8rem">
+      <div id="${type}-up"></div>
+    </div>
     <input id="${type}-search" class="rank-search" placeholder="🔎 키워드 검색...">
     <div id="${type}-table"></div>`;
   const cols=[...weekCols].reverse(), latest=weekCols[weekCols.length-1], prev=weekCols[weekCols.length-2];
@@ -619,6 +675,32 @@ async function renderRank(type){
       </tbody></table></div>${list.length>CAP?`<div class="cap-note">전체 ${fmt(list.length)}개 중 상위 ${CAP}개 표시 — 검색으로 좁히세요.</div>`:""}`;
   };
   render(""); const si=document.getElementById(type+"-search"); let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>render(si.value.trim().toLowerCase()),250);};
+  // CSV 업로드
+  const fileEl=document.getElementById(type+"-file"), upEl=document.getElementById(type+"-up");
+  fileEl.onchange=()=>{
+    const f=fileEl.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      try{
+        const parsed=parseAdReport(csvParse(decodeBuf(rd.result)), type);
+        if(!parsed.rows.length){ upEl.innerHTML=`<div class="cap-note" style="color:var(--red)">키워드를 찾지 못했어요. 네이버 검색광고 리포트 CSV가 맞는지 확인하세요.</div>`; return; }
+        const wk=parsed.week||thisWeekLabel();
+        upEl.innerHTML=`<div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:.76rem;color:var(--muted)">주차</label>
+          <input id="${type}-wk" value="${wk}" style="padding:7px 10px;border:1px solid var(--border2);border-radius:8px;font-size:.8rem;width:220px">
+          <button id="${type}-save" class="dl-btn primary">💾 ${parsed.rows.length}개 저장</button>
+          <span id="${type}-savemsg" class="cap-note"></span></div>`;
+        document.getElementById(type+"-save").onclick=async()=>{
+          const week=document.getElementById(type+"-wk").value.trim()||wk, msg=document.getElementById(type+"-savemsg");
+          msg.textContent="저장 중…";
+          try{ const r=await apiPost({action:"append_rank", rank_type:type, week, rows:parsed.rows});
+            msg.innerHTML=`✅ ${r.saved||parsed.rows.length}개 저장 완료 — 새로고침 시 표에 반영`; }
+          catch(e){ msg.innerHTML=`<span style="color:var(--red)">저장 실패: ${e.message}</span>`; }
+        };
+      }catch(e){ upEl.innerHTML=`<div class="cap-note" style="color:var(--red)">파싱 실패: ${e.message}</div>`; }
+    };
+    rd.readAsArrayBuffer(f);
+  };
 }
 
 /* ── 블로그/카페 순위 ── */
@@ -630,7 +712,11 @@ async function renderBlogCafe(){
   body.innerHTML=`
     <div class="card-title" style="margin-top:6px">📝 블로그/카페 순위</div>
     <div style="font-size:.74rem;color:var(--muted);margin:4px 0 10px">'오즈키즈' 노출 순위 · 0=순위권 밖 · 빈칸=미조회 · 🔺상승 🔻하락</div>
-    <div class="seg" id="bc-seg"><button data-t="blog" class="on">📝 블로그</button><button data-t="cafe">☕ 카페</button></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div class="seg" id="bc-seg"><button data-t="blog" class="on">📝 블로그</button><button data-t="cafe">☕ 카페</button></div>
+      <button id="bc-fetch" class="dl-btn primary">🔄 자동 조회 (네이버)</button>
+      <span id="bc-fetchmsg" class="cap-note" style="margin:0"></span>
+    </div>
     <input id="bc-search" class="rank-search" placeholder="🔎 키워드 검색..." style="margin:10px 0 0;display:block">
     <div id="bc-table"></div>`;
   const parsed={blog:parseRank(blog),cafe:parseRank(cafe)}; let cur="blog";
@@ -647,6 +733,17 @@ async function renderBlogCafe(){
       </tbody></table></div>${list.length>CAP?`<div class="cap-note">전체 ${fmt(list.length)}개 중 상위 ${CAP}개 표시.</div>`:""}`;
   };
   body.querySelectorAll("#bc-seg button").forEach(b=>b.onclick=()=>{body.querySelectorAll("#bc-seg button").forEach(x=>x.classList.remove("on"));b.classList.add("on");cur=b.dataset.t;render(document.getElementById("bc-search").value.trim().toLowerCase());});
+  document.getElementById("bc-fetch").onclick=async()=>{
+    const kws=parsed[cur].rows.map(r=>r.keyword), msg=document.getElementById("bc-fetchmsg");
+    const nm=cur==="cafe"?"카페":"블로그";
+    if(!confirm(`${nm} 순위를 네이버에서 실시간 조회합니다.\n키워드 ${kws.length}개 — 1~2분 걸리고, 끝나면 시트에 저장됩니다.\n진행할까요?`)) return;
+    msg.textContent="조회 중… (창을 닫지 마세요, 1~2분)";
+    try{
+      const r=await apiPost({action:"collect_rank", kind:cur, kw:kws, week:thisWeekLabel()});
+      if(r.error) throw new Error(r.error);
+      msg.innerHTML=`✅ ${nm} ${r.saved}개 저장 (${r.week}) — 새로고침 시 반영`;
+    }catch(e){ msg.innerHTML=`<span style="color:var(--red)">실패: ${e.message} — Apps Script 네이버 키 설정 필요</span>`; }
+  };
   const si=document.getElementById("bc-search"); let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>render(si.value.trim().toLowerCase()),250);};
   render("");
 }

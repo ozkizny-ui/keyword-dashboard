@@ -41,12 +41,39 @@ var KWWEB = {
     }
   },
 
+  // 네이버 키를 'Config' 시트에서 자동 로드 (수집기와 동일 시트 재사용 → 레포에 키 노출 X)
+  //   Config 시트 행: API_KEY | SECRET_KEY | CUSTOMER_ID | CLIENT_ID | CLIENT_SECRET
+  //   CFG 상수에 직접 채워둔 값이 있으면 그게 우선.
+  keysLoaded: false,
+  loadKeys: function () {
+    if (this.keysLoaded) return;
+    this.keysLoaded = true;
+    try {
+      var sh = this.ss().getSheetByName('Config');
+      if (!sh || sh.getLastRow() < 1) return;
+      var vals = sh.getRange(1, 1, Math.min(sh.getLastRow(), 50), 2).getValues();
+      var m = {};
+      vals.forEach(function (r) { if (r[0]) m[String(r[0]).trim()] = String(r[1]).trim(); });
+      var C = this.CFG;
+      C.NAVER_AD_API_LICENSE = C.NAVER_AD_API_LICENSE || m.API_KEY || m.NAVER_AD_API_LICENSE || '';
+      C.NAVER_AD_SECRET_KEY  = C.NAVER_AD_SECRET_KEY  || m.SECRET_KEY || m.NAVER_AD_SECRET_KEY || '';
+      C.NAVER_AD_CUSTOMER_ID = C.NAVER_AD_CUSTOMER_ID || m.CUSTOMER_ID || m.NAVER_AD_CUSTOMER_ID || '';
+      C.NAVER_CLIENT_ID      = C.NAVER_CLIENT_ID      || m.CLIENT_ID || m.NAVER_CLIENT_ID || '';
+      C.NAVER_CLIENT_SECRET  = C.NAVER_CLIENT_SECRET  || m.CLIENT_SECRET || m.NAVER_CLIENT_SECRET || '';
+    } catch (e) {}
+  },
+
   // ═══════════════ 라우팅 ═══════════════
   doGet: function (e) {
     var p = (e && e.parameter) || {}, S = this.CFG.SHEET;
+    this.loadKeys();
     try {
       switch (p.action) {
         case 'ping':              return this.json({ ok: true, ts: new Date().toISOString() });
+        case 'keystatus':         return this.json({
+          ad_key: !!this.CFG.NAVER_AD_API_LICENSE, ad_secret: !!this.CFG.NAVER_AD_SECRET_KEY,
+          ad_customer: !!this.CFG.NAVER_AD_CUSTOMER_ID, client_id: !!this.CFG.NAVER_CLIENT_ID,
+          client_secret: !!this.CFG.NAVER_CLIENT_SECRET });
         case 'keyword_dict':      return this.json(this.sheetData(S.dict));
         case 'weekly':            return this.json(this.sheetData(S.weekly));
         case 'trend':             return this.json(this.sheetData(S.trend));
@@ -68,13 +95,20 @@ var KWWEB = {
 
   doPost: function (e) {
     var p = (e && e.parameter) || {}, body = {}, S = this.CFG.SHEET;
+    this.loadKeys();
     try { body = e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : {}; } catch (x) {}
     var action = p.action || body.action;
     try {
       switch (action) {
         case 'save_setting':      this.saveSetting(body.key, body.value); return this.json({ ok: true });
         case 'save_new_keywords': this.saveNewKeywords(body.rows || []);  return this.json({ ok: true, saved: (body.rows || []).length });
-        case 'append_rank':       this.appendRankHistory(body.rows || [], body.week, S[body.rank_type] || S.shopping); return this.json({ ok: true });
+        case 'append_rank':       this.appendRankHistory(body.rows || [], body.week, S[body.rank_type] || S.shopping); return this.json({ ok: true, saved: (body.rows || []).length });
+        case 'collect_rank': {     // 블로그/카페 순위 라이브 조회 + 저장 (한 번에)
+          var ranks = body.kind === 'cafe' ? this.fetchCafeRank(body.kw || []) : this.fetchBlogRank(body.kw || []);
+          var rrows = ranks.map(function (r) { return { keyword: r.keyword, avg_rank: r.rank }; });
+          this.appendRankHistory(rrows, body.week, S[body.kind] || S.blog);
+          return this.json({ ok: true, saved: rrows.length, week: body.week });
+        }
         case 'save_trend':        this.saveTrend(body.header || [], body.rows || []); return this.json({ ok: true });
         default:                  return this.json({ error: 'unknown action' });
       }
