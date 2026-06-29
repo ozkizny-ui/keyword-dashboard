@@ -330,6 +330,9 @@ function renderWeekly(){
       <div class="card"><div class="card-title">🏆 검색수 TOP 10 (이번주)</div><div class="chart-box" style="height:300px"><canvas id="c-top10"></canvas></div></div>
       <div class="card"><div class="card-title">📅 계절 전환 지표 (${nextSeason} 키워드 동향)</div><div class="chart-box" style="height:300px"><canvas id="c-season"></canvas></div></div>
     </div>
+    <div class="subhead">📈 키워드 주간 추이 (최근 8주)</div>
+    <div class="ms-pop" id="trend-kw-pick" style="max-width:340px;margin-bottom:10px"></div>
+    <div class="card"><div class="chart-box" style="height:420px"><canvas id="c-trend"></canvas></div></div>
     <div class="divider"></div>
     <div class="row-controls">
       <span style="font-weight:600;font-size:.8rem;color:var(--muted)">기간</span>
@@ -346,9 +349,6 @@ function renderWeekly(){
     <div class="subhead">🔢 키워드별 검색수 순위</div>
     <div id="rank-table"></div>
     <div class="divider"></div>
-    <div class="subhead">📈 키워드 주간 추이 (최근 8주)</div>
-    <div class="ms-pop" id="trend-kw-pick" style="max-width:340px;margin-bottom:10px"></div>
-    <div class="card"><div class="chart-box" style="height:420px"><canvas id="c-trend"></canvas></div></div>
     <div class="subhead">📋 전체 데이터</div>
     <div id="full-table"></div>
   `;
