@@ -374,13 +374,17 @@ const PAGE_RENDER={
   trend:renderTrend, shopping:()=>renderRank("shopping"), powerlink:()=>renderRank("powerlink"),
   blogcafe:renderBlogCafe, newkw:renderNewkw, manage:renderManage,
 };
-document.querySelectorAll(".nav-item").forEach(btn=>btn.onclick=()=>{
-  document.querySelectorAll(".nav-item").forEach(b=>b.classList.remove("active"));
-  btn.classList.add("active");
-  const pg=btn.dataset.page;
+const VALID_PAGES=["weekly","trend","shopping","powerlink","blogcafe","newkw","manage"];
+// 해시 라우팅: 탭마다 URL 다르게 (#trend, #shopping …) → 북마크·공유·뒤로가기 지원
+function navigate(pg){
+  if(!VALID_PAGES.includes(pg)) pg="weekly";
+  document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active", b.dataset.page===pg));
   document.querySelectorAll("main section").forEach(s=>s.hidden = s.id!==`page-${pg}`);
-  if(!rendered.has(pg) && PAGE_RENDER[pg]){ rendered.add(pg); try{ PAGE_RENDER[pg](); }catch(e){ console.error(e); } }
-});
+  if(!rendered.has(pg)){ rendered.add(pg); if(PAGE_RENDER[pg]){ try{ PAGE_RENDER[pg](); }catch(e){ console.error(e); } } }
+}
+function currentPage(){ return (location.hash||"").replace(/^#\/?/,"")||"weekly"; }
+document.querySelectorAll(".nav-item").forEach(btn=>btn.onclick=()=>{ location.hash=btn.dataset.page; });
+window.addEventListener("hashchange",()=>navigate(currentPage()));
 const loadingHTML=`<div class="loading"><div class="spinner"></div>불러오는 중…</div>`;
 
 /* ═══════════════════════════════════════════════════════════════
@@ -834,6 +838,7 @@ async function boot(){
     document.getElementById("connState").textContent = CONFIG.API_URL ? "연결됨" : "목업 모드";
     initFilters();
     renderWeekly();
+    navigate(currentPage());   // URL 해시(#trend 등)에 맞는 탭 열기
   }catch(e){
     document.getElementById("connState").textContent="연결 실패";
     document.getElementById("weekly-body").innerHTML=`<div class="info">데이터 로드 실패: ${e.message}<br>Apps Script URL과 배포 상태를 확인하세요.</div>`;
