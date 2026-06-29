@@ -165,18 +165,30 @@ const KST = "Asia/Seoul";
 const META_COLS = new Set(["계절","복종","연령","성별","카테고리","대표키워드","키워드"]);
 const fmt = n => (n==null||isNaN(n)) ? "-" : Math.round(n).toLocaleString("ko-KR");
 const pct = v => (v==null||isNaN(v)) ? "-" : (v>0?"+":"")+v.toFixed(1)+"%";
-// 주차 컬럼 라벨: 날짜로 해석되면 "YY.MM.DD" 로 짧게, 아니면(예: 2025-W20) 원본 유지
+// 주차 컬럼 라벨
+//  - 이미 "범위"(하이픈 포함) 형식이면 그대로 (예: 2026.06.19-2026.06.25)
+//  - 단일 날짜 D 면 "(D+1)~(D+7)" 주간 범위로 변환 (예: 2024.12.26 → 2024.12.27-2025.01.02)
+//  - 날짜로 못 읽으면 원본 유지 (예: 2025-W20)
+function _parseYMD(s){
+  // 숫자 날짜: "2022. 10. 23." / "2024.1.17" / "2024.03.05" 등 (연도로 시작)
+  const m=s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  if(m && /^\d{4}/.test(s)) return {y:+m[1], mo:+m[2], d:+m[3]};
+  // JS Date 문자열: "Sun Oct 23 2022 00:00:00 GMT+0900 (한국 표준시)"
+  const dt=new Date(s);
+  if(isNaN(dt.getTime())) return null;
+  const p=new Intl.DateTimeFormat("en-CA",{timeZone:KST,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(dt);
+  const g=t=>+(p.find(x=>x.type===t)||{}).value;
+  return {y:g("year"), mo:g("month"), d:g("day")};
+}
 function fmtWeek(h){
   const s=String(h).trim();
-  if(/^\d{4}/.test(s) || /\b\d{4}\b/.test(s)){
-    const d=new Date(s);
-    if(!isNaN(d.getTime())){
-      const p=new Intl.DateTimeFormat("en-CA",{timeZone:KST,year:"2-digit",month:"2-digit",day:"2-digit"}).formatToParts(d);
-      const g=t=>(p.find(x=>x.type===t)||{}).value;
-      return `${g("year")}.${g("month")}.${g("day")}`;
-    }
-  }
-  return s;
+  if(!s) return s;
+  if(s.includes("-")) return s;                 // 이미 범위 형식
+  const p=_parseYMD(s);
+  if(!p) return s;                              // 날짜 아님 → 원본
+  const base=Date.UTC(p.y, p.mo-1, p.d);
+  const f=ms=>{ const d=new Date(ms); return `${d.getUTCFullYear()}.${String(d.getUTCMonth()+1).padStart(2,"0")}.${String(d.getUTCDate()).padStart(2,"0")}`; };
+  return f(base+864e5) + "-" + f(base+7*864e5); // D+1 ~ D+7
 }
 
 /* ── API ───────────────────────────────────────────────────── */
