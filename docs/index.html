@@ -118,6 +118,7 @@ tbody tr:hover{background:var(--surface2)}
 .rk-b{display:inline-flex;align-items:center;gap:3px;padding:2px 9px;border-radius:20px;font-size:.72rem;font-weight:700;white-space:nowrap}
 .rk-n{background:var(--surface2);color:var(--muted)}
 .rk-new{background:var(--accent-l);color:var(--accent-d)}
+.wk-th{cursor:pointer;user-select:none} .wk-th:hover{color:var(--accent-d)}
 </style>
 </head>
 <body>
@@ -707,23 +708,29 @@ async function renderRank(type){
   document.getElementById(type+"-ex").value=st.exclude||"";
   document.getElementById(type+"-sort").value=st.sort||"drop";
   const persist=()=>saveSetting(SKEY, JSON.stringify({seasons:st.seasons,items:st.items,exclude:st.exclude,sort:st.sort}));
+  const visible=rows.filter(r=>!(r.w[latest]==null && r.w[prev]==null)); // 최근 2주 모두 미노출이면 숨김
+  let colSort=null; // 날짜 헤더 클릭 정렬 {col,dir}
   const render=()=>{
     const q=(document.getElementById(type+"-search").value||"").trim().toLowerCase();
     const exWords=String(st.exclude||"").split(",").map(s=>s.trim()).filter(Boolean);
-    let list=rows.filter(r=>{
+    let list=visible.filter(r=>{
       if(st.seasons.length && !st.seasons.includes(r.season)) return false;
       if(st.items.length && !st.items.includes(r.item)) return false;
       if(exWords.length && exWords.some(w=>r.keyword.includes(w))) return false;
       if(q && !r.keyword.toLowerCase().includes(q)) return false;
       return true;
     });
-    // 2단계 정렬: 두 주 모두 노출된(비교가능) 키워드 먼저, 이탈/신규는 맨 아래
-    const key=r=>{ const c=r.w[latest], p=r.w[prev];
-      if(st.sort==="rank") return [c==null?1:0, c==null?0:c]; // 현재순위: 노출된 것 1위부터, 미노출 아래
-      const comp=(c!=null&&p!=null), d=comp?(p-c):0; // d>0 상승(좋아짐)
-      return [comp?0:1, st.sort==="rise"?-d:d];        // drop: 오름차순(가장 하락=맨 위)
-    };
-    list.sort((a,b)=>{const ka=key(a),kb=key(b); return ka[0]-kb[0] || ka[1]-kb[1];});
+    if(colSort){ // 날짜 컬럼 기준 정렬 (미노출은 항상 맨 아래)
+      const c=colSort.col, dir=colSort.dir==="desc"?-1:1;
+      list.sort((a,b)=>{const x=a.w[c],y=b.w[c];if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return (x-y)*dir;});
+    } else { // 2단계: 두 주 모두 노출된(비교가능) 키워드 먼저, 이탈/신규는 맨 아래
+      const key=r=>{ const c=r.w[latest], p=r.w[prev];
+        if(st.sort==="rank") return [c==null?1:0, c==null?0:c];
+        const comp=(c!=null&&p!=null), d=comp?(p-c):0;
+        return [comp?0:1, st.sort==="rise"?-d:d];
+      };
+      list.sort((a,b)=>{const ka=key(a),kb=key(b); return ka[0]-kb[0] || ka[1]-kb[1];});
+    }
     const CAP=500, shown=list.slice(0,CAP);
     const rk=v=>v==null?'<span class="flat">-</span>':v;
     const badge=r=>{ const c=r.w[latest], p=r.w[prev];
@@ -734,16 +741,23 @@ async function renderRank(type){
       const mag=Math.abs(d), a=Math.min(0.16+mag*0.07,0.82), up=d>0;
       return `<span class="rk-b" style="background:rgba(${up?'45,168,130':'224,82,82'},${a.toFixed(2)});color:${up?'#0f6e56':'#791f1f'}">${up?'▲':'▼'}${mag} ${up?'상승':'하락'}</span>`;
     };
+    const arr=c=> colSort&&colSort.col===c ? (colSort.dir==="desc"?' ▼':' ▲') : '';
     document.getElementById(type+"-table").innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 키워드</div>
-      <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">키워드</th><th class="lcell">품목</th><th style="text-align:center">순위변화</th>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>
-      ${shown.map(r=>`<tr><td class="lcell">${r.keyword}</td><td class="lcell" style="font-weight:400;color:var(--muted);font-size:.72rem">${r.item||""}</td><td style="text-align:center">${badge(r)}</td>
+      <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">품목</th><th class="lcell">키워드</th><th style="text-align:center">순위변화</th>${cols.map(c=>`<th class="wk-th" data-week="${c}" title="클릭: 이 주차 기준 정렬">${c}${arr(c)}</th>`).join("")}</tr></thead><tbody>
+      ${shown.map(r=>`<tr><td class="lcell" style="font-weight:400;color:var(--muted);font-size:.72rem">${r.item||""}</td><td class="lcell">${r.keyword}</td><td style="text-align:center">${badge(r)}</td>
         ${cols.map(c=>`<td>${rk(r.w[c])}</td>`).join("")}</tr>`).join("")}
       </tbody></table></div>${list.length>CAP?`<div class="cap-note">전체 ${fmt(list.length)}개 중 상위 ${CAP}개 표시 — 필터·검색으로 좁히세요.</div>`:""}`;
   };
   buildMultiselect(document.getElementById(type+"-fs"), seasonOpts, st.seasons, ()=>{persist();render();});
   buildMultiselect(document.getElementById(type+"-fi"), itemOpts, st.items, ()=>{persist();render();});
   const ex=document.getElementById(type+"-ex"); let et; ex.oninput=()=>{clearTimeout(et);et=setTimeout(()=>{st.exclude=ex.value;persist();render();},400);};
-  document.getElementById(type+"-sort").onchange=e=>{st.sort=e.target.value;persist();render();};
+  document.getElementById(type+"-sort").onchange=e=>{st.sort=e.target.value;colSort=null;persist();render();};
+  document.getElementById(type+"-table").addEventListener("click", e=>{
+    const th=e.target.closest("th[data-week]"); if(!th) return;
+    const c=th.dataset.week;
+    if(colSort&&colSort.col===c) colSort.dir=colSort.dir==="desc"?"asc":"desc"; else colSort={col:c,dir:"desc"};
+    render();
+  });
   const si=document.getElementById(type+"-search"); let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(render,250);};
   render();
   // CSV 업로드
