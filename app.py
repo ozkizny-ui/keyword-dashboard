@@ -1524,11 +1524,14 @@ if selected_menu == "📈 주간 검색수":
 
         # ── 전체 데이터 테이블 (선택 기간)
         st.subheader("📋 전체 데이터")
-        _wk_fmt = {c: "{:,.0f}" for c in period_filtered.columns if c != "keyword"}
-        st.dataframe(
-            period_filtered.style.format(_wk_fmt, na_rep="-"),
-            use_container_width=True, hide_index=True, height=400,
-        )
+        # Styler 대신 값을 직접 문자열 포맷 → 최신 Streamlit/pandas의 styler 변환 예외 회피
+        _full_disp = period_filtered.loc[:, ~period_filtered.columns.duplicated()].copy()
+        for _c in _full_disp.columns:
+            if _c != "keyword":
+                _full_disp[_c] = pd.to_numeric(_full_disp[_c], errors="coerce").map(
+                    lambda v: f"{v:,.0f}" if pd.notna(v) else "-"
+                )
+        st.dataframe(_full_disp, use_container_width=True, hide_index=True, height=400)
 
 
 # ── 연간 트렌드 ──
