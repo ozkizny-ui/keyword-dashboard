@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>오즈키즈 키워드 대시보드</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<style>
+/* ── RESET & TOKENS ─────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F5F5F8; --surface:#FFFFFF; --surface2:#F0F0F7;
+  --border:rgba(107,95,228,.12); --border2:rgba(107,95,228,.2);
+  --accent:#7B6FE8; --accent-d:#5A4FD4; --accent-l:#EDEAFD;
+  --red:#E05252; --red-l:#FDEDEB; --blue:#3B7DE0; --blue-l:#EAF1FD;
+  --green:#2DA882; --green-l:#E3F5EF; --amber:#D97706; --amber-l:#FEF3C7;
+  --text:#18172E; --muted:#8A88A8;
+  --shadow:0 1px 3px rgba(107,95,228,.08),0 4px 16px rgba(107,95,228,.06);
+}
+html,body{background:var(--bg);color:var(--text);
+  font-family:Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+a{color:inherit}
+
+/* ── LAYOUT ─────────────────────────────────────────────────── */
+.app{display:flex;min-height:100vh}
+.sidebar{width:210px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);
+  padding:20px 12px;position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;gap:4px}
+.brand{font-size:1.15rem;font-weight:800;color:var(--accent-d);letter-spacing:-.02em;
+  padding:4px 8px 16px;display:flex;align-items:center;gap:8px}
+.nav-item{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:10px;border:none;
+  background:transparent;width:100%;text-align:left;font-size:.86rem;font-weight:600;color:var(--muted);transition:.12s}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item.active{background:var(--accent-l);color:var(--accent-d)}
+.sidebar-foot{margin-top:auto;font-size:.66rem;color:var(--muted);padding:8px;line-height:1.6}
+.sidebar-foot .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px}
+
+.main{flex:1;min-width:0;padding:24px 28px 60px;max-width:1500px}
+.page-head h1{font-size:clamp(1.1rem,3vw,1.5rem);font-weight:800;letter-spacing:-.03em}
+.page-head .sub{font-size:.74rem;color:var(--muted);margin-top:3px}
+.page-head .sub b{color:#64748b}
+
+/* ── CARDS / SECTIONS ───────────────────────────────────────── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;
+  padding:18px 20px;box-shadow:var(--shadow);margin-top:18px}
+.card-title{font-size:.92rem;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}.sidebar{width:64px}.brand span,.nav-item span.lbl{display:none}}
+
+/* ── FILTERS ────────────────────────────────────────────────── */
+.filters{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+@media(max-width:900px){.filters{grid-template-columns:1fr 1fr}}
+.filter label{display:block;font-size:.72rem;font-weight:600;color:var(--muted);margin-bottom:5px}
+.filter select,.filter input{width:100%;padding:8px 10px;border:1px solid var(--border2);border-radius:9px;
+  background:var(--surface);font-size:.82rem;color:var(--text);outline:none}
+.filter select[multiple]{height:auto;min-height:38px}
+.filter input:focus,.filter select:focus{border-color:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.chip{font-size:.68rem;background:var(--accent-l);color:var(--accent-d);padding:2px 8px;border-radius:20px;
+  display:inline-flex;gap:4px;align-items:center}
+.chip b{cursor:pointer}
+
+/* ── TABLES ─────────────────────────────────────────────────── */
+.tbl-wrap{overflow-x:auto;border-radius:12px;border:1px solid var(--border)}
+table{border-collapse:collapse;width:100%;font-size:.8rem}
+thead th{background:var(--surface2);color:var(--muted);font-weight:700;text-align:right;
+  padding:9px 12px;position:sticky;top:0;white-space:nowrap}
+thead th:first-child,thead th.lcell{text-align:left}
+tbody td{padding:8px 12px;text-align:right;border-top:1px solid var(--border);white-space:nowrap}
+tbody td:first-child,tbody td.lcell{text-align:left;font-weight:600}
+tbody tr:hover{background:var(--surface2)}
+.scroll-box{max-height:420px;overflow-y:auto}
+.up{color:var(--red);font-weight:700}
+.down{color:var(--blue);font-weight:700}
+.flat{color:var(--muted)}
+.bg-drop{background:var(--blue-l)!important}
+.bg-warn{background:var(--amber-l)!important}
+
+/* ── CHART CANVAS ───────────────────────────────────────────── */
+.chart-box{position:relative;width:100%}
+.subhead{font-size:.95rem;font-weight:700;margin:26px 0 10px;display:flex;align-items:center;gap:6px}
+.divider{height:1px;background:var(--border);margin:26px 0}
+.info{background:var(--surface2);border:1px dashed var(--border2);border-radius:12px;padding:24px;
+  text-align:center;color:var(--muted);font-size:.84rem;margin-top:12px}
+.metric{display:inline-block;font-size:.74rem;color:var(--muted);margin-bottom:10px}
+.metric b{font-size:1.2rem;color:var(--text);font-weight:800;margin-right:4px}
+.seg{display:inline-flex;background:var(--surface2);border-radius:9px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{border:none;background:transparent;padding:6px 12px;border-radius:7px;font-size:.78rem;font-weight:600;color:var(--muted)}
+.seg button.on{background:var(--surface);color:var(--accent-d);box-shadow:var(--shadow)}
+.loading{padding:60px;text-align:center;color:var(--muted)}
+.spinner{width:30px;height:30px;border:3px solid var(--accent-l);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.banner{font-size:.74rem;padding:8px 12px;border-radius:9px;margin-top:14px;display:none}
+.banner.warn{display:block;background:var(--amber-l);color:var(--amber);border:1px solid rgba(217,119,6,.2)}
+.row-controls{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:18px 0 4px}
+.ms-pop{position:relative}
+.ms-list{position:absolute;z-index:30;top:100%;left:0;margin-top:4px;background:var(--surface);
+  border:1px solid var(--border2);border-radius:10px;box-shadow:var(--shadow);padding:6px;max-height:240px;
+  overflow-y:auto;min-width:200px;display:none}
+.ms-list.open{display:block}
+.ms-list label{display:flex;gap:7px;align-items:center;padding:5px 8px;border-radius:7px;font-size:.8rem;font-weight:500;cursor:pointer}
+.ms-list label:hover{background:var(--surface2)}
+.ms-search{width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:7px;font-size:.78rem;margin-bottom:5px;outline:none}
+.cap-note{font-size:.72rem;color:var(--muted);margin:6px 2px 0}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ── SIDEBAR ── -->
+  <nav class="sidebar">
+    <div class="brand">💡<span>오즈키즈</span></div>
+    <button class="nav-item active" data-page="weekly">📈<span class="lbl">주간 검색수</span></button>
+    <button class="nav-item" data-page="trend">📊<span class="lbl">연간 트렌드</span></button>
+    <button class="nav-item" data-page="shopping">🛒<span class="lbl">쇼핑검색 순위</span></button>
+    <button class="nav-item" data-page="powerlink">🔗<span class="lbl">파워링크 순위</span></button>
+    <button class="nav-item" data-page="blogcafe">📝<span class="lbl">블로그/카페 순위</span></button>
+    <button class="nav-item" data-page="newkw">🆕<span class="lbl">신규키워드 개발</span></button>
+    <button class="nav-item" data-page="manage">⚙️<span class="lbl">데이터 관리</span></button>
+    <div class="sidebar-foot"><span class="dot"></span><span id="connState">로딩 중…</span></div>
+  </nav>
+
+  <!-- ── MAIN ── -->
+  <main class="main">
+    <div class="page-head">
+      <h1>📊 오즈키즈 키워드 대시보드</h1>
+      <div class="sub">브랜드: <b>오즈키즈</b> &nbsp;·&nbsp; 업데이트: <span id="updatedAt">—</span></div>
+    </div>
+
+    <!-- PAGE: 주간 검색수 -->
+    <section id="page-weekly">
+      <div class="filters">
+        <div class="filter"><label>계절</label><div class="ms-pop" id="f-season"></div></div>
+        <div class="filter"><label>카테고리</label><div class="ms-pop" id="f-category"></div></div>
+        <div class="filter"><label>성별/나이</label><div class="ms-pop" id="f-gender"></div></div>
+        <div class="filter"><label>🔎 키워드 검색</label><input id="f-search" placeholder="키워드명 입력..."></div>
+      </div>
+      <div id="weekly-body"><div class="loading"><div class="spinner"></div>데이터 불러오는 중…</div></div>
+    </section>
+
+    <!-- Other pages (Phase 2) -->
+    <section id="page-trend" hidden><div class="info">📊 연간 트렌드 — 2단계에서 추가됩니다.</div></section>
+    <section id="page-shopping" hidden><div class="info">🛒 쇼핑검색 순위 — 2단계에서 추가됩니다.</div></section>
+    <section id="page-powerlink" hidden><div class="info">🔗 파워링크 순위 — 2단계에서 추가됩니다.</div></section>
+    <section id="page-blogcafe" hidden><div class="info">📝 블로그/카페 순위 — 2단계에서 추가됩니다.</div></section>
+    <section id="page-newkw" hidden><div class="info">🆕 신규키워드 개발 — 2단계에서 추가됩니다.</div></section>
+    <section id="page-manage" hidden><div id="manage-body"><div class="info">⚙️ 데이터 관리</div></div></section>
+  </main>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   CONFIG — 배포 후 Apps Script 웹앱 /exec URL 을 여기에 넣으세요.
+   비워두면 내장 목업 데이터로 동작합니다(UI 미리보기용).
+   ═══════════════════════════════════════════════════════════════ */
+const CONFIG = {
+  API_URL: "https://script.google.com/macros/s/AKfycbwxeD3Ofxr1r5Aq6ZZUmt64B48lVSeq757jh5r0wWJRf1T1tycMU6NN50p7odBgqw_xhw/exec",
+};
+
+const KST = "Asia/Seoul";
+const META_COLS = new Set(["계절","복종","연령","성별","카테고리","대표키워드","키워드"]);
+const fmt = n => (n==null||isNaN(n)) ? "-" : Math.round(n).toLocaleString("ko-KR");
+const pct = v => (v==null||isNaN(v)) ? "-" : (v>0?"+":"")+v.toFixed(1)+"%";
+// 주차 컬럼 라벨: 날짜로 해석되면 "YY.MM.DD" 로 짧게, 아니면(예: 2025-W20) 원본 유지
+function fmtWeek(h){
+  const s=String(h).trim();
+  if(/^\d{4}/.test(s) || /\b\d{4}\b/.test(s)){
+    const d=new Date(s);
+    if(!isNaN(d.getTime())){
+      const p=new Intl.DateTimeFormat("en-CA",{timeZone:KST,year:"2-digit",month:"2-digit",day:"2-digit"}).formatToParts(d);
+      const g=t=>(p.find(x=>x.type===t)||{}).value;
+      return `${g("year")}.${g("month")}.${g("day")}`;
+    }
+  }
+  return s;
+}
+
+/* ── API ───────────────────────────────────────────────────── */
+async function api(action, params={}){
+  if(!CONFIG.API_URL) return MOCK[action] ?? null;
+  const q = new URLSearchParams({action, ...params});
+  const res = await fetch(`${CONFIG.API_URL}?${q}`);
+  if(!res.ok) throw new Error("HTTP "+res.status);
+  return res.json();
+}
+
+/* ── 데이터 모델: 키워드사전 {header, rows} → weekly/meta ────── */
+function parseKeywordDict(kd){
+  if(!kd || !kd.header || !kd.rows) return {weekly:[], weekCols:[], meta:{}};
+  const H = kd.header;
+  const kwIdx = H.indexOf("키워드") >= 0 ? H.indexOf("키워드") : 0;
+  const weekColIdx = [];
+  H.forEach((c,i)=>{ if(i!==kwIdx && !META_COLS.has(c)) weekColIdx.push(i); });
+  const weekCols = weekColIdx.map(i=>fmtWeek(H[i]));
+  const idx = name => H.indexOf(name);
+  const sIdx=idx("계절"), cIdx=idx("카테고리"), gIdx=idx("성별"), aIdx=idx("연령");
+  const seen=new Set(), weekly=[], meta={};
+  for(const r of kd.rows){
+    const kw = String(r[kwIdx]??"").trim();
+    if(!kw || seen.has(kw)) continue;
+    seen.add(kw);
+    const rec = {keyword:kw};
+    weekColIdx.forEach((ci,j)=>{
+      const raw = String(r[ci]??"").replace(/,/g,"");
+      rec[weekCols[j]] = raw==="" ? 0 : (parseInt(raw,10)||0);
+    });
+    weekly.push(rec);
+    const gender = gIdx>=0 ? String(r[gIdx]??"").trim() : "";
+    const age = aIdx>=0 ? String(r[aIdx]??"").trim() : "";
+    let ga = (gender+"/"+age).replace(/^\/|\/$/g,"");
+    if(ga==="/"||ga==="") ga="";
+    meta[kw] = {
+      season: sIdx>=0 ? String(r[sIdx]??"").trim() : "",
+      category: cIdx>=0 ? String(r[cIdx]??"").trim() : "",
+      gender: ga,
+    };
+  }
+  return {weekly, weekCols, meta};
+}
+
+/* ── 계산: calc_changes ────────────────────────────────────── */
+function calcChanges(rows, weekCols){
+  if(weekCols.length<2) return rows.map(r=>({keyword:r.keyword, 이번주:null, 지난주:null, 변화량:null, 변화율:null}));
+  const latest=weekCols[weekCols.length-1], prev=weekCols[weekCols.length-2];
+  return rows.map(r=>{
+    const cur=r[latest], pv=r[prev];
+    const delta=cur-pv;
+    const rate = pv>0 ? Math.round(delta/pv*1000)/10 : null;
+    return {keyword:r.keyword, 이번주:cur, 지난주:pv, 변화량:delta, 변화율:rate};
+  });
+}
+
+/* ── 필터: apply_filters ───────────────────────────────────── */
+function applyFilters(rows){
+  const {seasons, categories, genders, search} = FILTER;
+  let out = rows.filter(r=>{
+    const m = STATE.meta[r.keyword] || {};
+    if(seasons.length && !seasons.some(s=> (m.season||"").includes(s))) return false;
+    if(categories.length && !categories.includes(m.category)) return false;
+    if(genders.length && !genders.includes(m.gender)) return false;
+    return true;
+  });
+  if(search) out = out.filter(r=> r.keyword.toLowerCase().includes(search.toLowerCase()));
+  return out;
+}
+
+/* ── 상태 ──────────────────────────────────────────────────── */
+const STATE = {weekly:[], weekCols:[], meta:{}};
+const FILTER = JSON.parse(localStorage.getItem("kw_filters")||"{}");
+FILTER.seasons??=[]; FILTER.categories??=[]; FILTER.genders??=[]; FILTER.search="";
+const charts = {};
+function saveFilters(){ localStorage.setItem("kw_filters", JSON.stringify({seasons:FILTER.seasons,categories:FILTER.categories,genders:FILTER.genders})); }
+
+const SEASON_BY_MONTH={12:"겨울",1:"겨울",2:"겨울",3:"봄",4:"봄",5:"봄",6:"여름",7:"여름",8:"여름",9:"가을",10:"가을",11:"가을"};
+const NEXT_SEASON={"봄":"여름","여름":"가을","가을":"겨울","겨울":"봄"};
+function kstMonth(){ return Number(new Intl.DateTimeFormat("en-US",{timeZone:KST,month:"numeric"}).format(new Date())); }
+function kstNow(){ return new Intl.DateTimeFormat("ko-KR",{timeZone:KST,dateStyle:"medium",timeStyle:"short"}).format(new Date()); }
+
+/* ── 멀티셀렉트 드롭다운 ───────────────────────────────────── */
+function buildMultiselect(host, options, selected, onChange){
+  const CAP=80;
+  host.innerHTML = `<input class="ms-head" readonly placeholder="전체" style="cursor:pointer">
+    <div class="ms-list"><input class="ms-search" placeholder="🔎 검색..."><div class="ms-opts"></div></div>`;
+  const head=host.querySelector(".ms-head"), list=host.querySelector(".ms-list"),
+        search=host.querySelector(".ms-search"), opts=host.querySelector(".ms-opts");
+  const renderHead=()=> head.value = selected.length ? `${selected.length}개 선택` : "";
+  const renderOpts=()=>{
+    const q=search.value.trim().toLowerCase();
+    const arr = q ? options.filter(o=>o.toLowerCase().includes(q)) : options;
+    const shown=arr.slice(0,CAP);
+    opts.innerHTML = (shown.map(o=>`<label><input type="checkbox" value="${o}" ${selected.includes(o)?"checked":""}>${o}</label>`).join("")
+      || `<div style="padding:8px;color:var(--muted)">결과 없음</div>`)
+      + (arr.length>CAP?`<div style="padding:6px 8px;color:var(--muted);font-size:.7rem">…외 ${arr.length-CAP}개 · 검색으로 좁히세요</div>`:"");
+    opts.querySelectorAll("input").forEach(cb=>cb.onchange=()=>{
+      if(cb.checked) selected.push(cb.value); else selected.splice(selected.indexOf(cb.value),1);
+      renderHead(); onChange();
+    });
+  };
+  head.onclick=e=>{ e.stopPropagation(); document.querySelectorAll(".ms-list").forEach(l=>l!==list&&l.classList.remove("open")); list.classList.toggle("open"); if(list.classList.contains("open")) setTimeout(()=>search.focus(),0); };
+  list.addEventListener("click", e=>e.stopPropagation());
+  search.oninput=renderOpts;
+  renderHead(); renderOpts();
+}
+document.addEventListener("click",()=>document.querySelectorAll(".ms-list").forEach(l=>l.classList.remove("open")));
+
+/* ── 네비게이션 ────────────────────────────────────────────── */
+document.querySelectorAll(".nav-item").forEach(btn=>btn.onclick=()=>{
+  document.querySelectorAll(".nav-item").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  const pg=btn.dataset.page;
+  document.querySelectorAll("main section").forEach(s=>s.hidden = s.id!==`page-${pg}`);
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   PAGE 1 — 주간 검색수
+   ═══════════════════════════════════════════════════════════════ */
+function renderWeekly(){
+  const body=document.getElementById("weekly-body");
+  if(!STATE.weekly.length){ body.innerHTML=`<div class="info">아직 수집된 데이터가 없습니다. 주간 수집(GitHub Actions)이 먼저 실행되어야 합니다.</div>`; return; }
+
+  const filtered = applyFilters(STATE.weekly);
+  const weekCols = STATE.weekCols;
+  const changes = calcChanges(filtered, weekCols);
+  const ranked = changes.filter(c=>c.변화율!=null);
+  const curSeason = SEASON_BY_MONTH[kstMonth()];
+  const nextSeason = NEXT_SEASON[curSeason];
+
+  body.innerHTML = `
+    <div class="card">
+      <div class="card-title">🫧 키워드 성장 버블맵</div>
+      <div id="bubble-host"></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><div class="card-title">🏆 검색수 TOP 10 (이번주)</div><div class="chart-box" style="height:300px"><canvas id="c-top10"></canvas></div></div>
+      <div class="card"><div class="card-title">📅 계절 전환 지표 (${nextSeason} 키워드 동향)</div><div class="chart-box" style="height:300px"><canvas id="c-season"></canvas></div></div>
+    </div>
+    <div class="divider"></div>
+    <div class="row-controls">
+      <span style="font-weight:600;font-size:.8rem;color:var(--muted)">기간</span>
+      <div class="seg" id="period-seg">
+        <button data-p="recent2" class="on">최근 2주 비교</button>
+        <button data-p="custom">직접 선택</button>
+      </div>
+      <div id="period-custom" style="display:none;gap:8px;align-items:center">
+        <select id="p-start" class="period-sel"></select><span style="color:var(--muted)">~</span><select id="p-end" class="period-sel"></select>
+      </div>
+    </div>
+    <div class="grid2" id="movers"></div>
+    <div class="divider"></div>
+    <div class="subhead">🔢 키워드별 검색수 순위</div>
+    <div id="rank-table"></div>
+    <div class="divider"></div>
+    <div class="subhead">📈 키워드 주간 추이 (최근 8주)</div>
+    <div class="ms-pop" id="trend-kw-pick" style="max-width:340px;margin-bottom:10px"></div>
+    <div class="card"><div class="chart-box" style="height:420px"><canvas id="c-trend"></canvas></div></div>
+    <div class="subhead">📋 전체 데이터</div>
+    <div id="full-table"></div>
+  `;
+
+  drawBubble(ranked);
+  drawTop10(filtered, weekCols);
+  drawSeasonTransition(nextSeason, weekCols);
+
+  // 기간 컨트롤
+  const sel1=body.querySelector("#p-start"), sel2=body.querySelector("#p-end");
+  weekCols.forEach(w=>{ sel1.add(new Option(w,w)); sel2.add(new Option(w,w)); });
+  sel1.value=weekCols[0]; sel2.value=weekCols[weekCols.length-1];
+  const periodState={mode:"recent2"};
+  const recompute=()=>{
+    let cols;
+    if(periodState.mode==="recent2") cols=weekCols.slice(-2);
+    else { let a=weekCols.indexOf(sel1.value), b=weekCols.indexOf(sel2.value); if(a>b)[a,b]=[b,a]; cols=weekCols.slice(a,b+1); }
+    renderPeriodSections(filtered, cols);
+  };
+  body.querySelectorAll("#period-seg button").forEach(b=>b.onclick=()=>{
+    body.querySelectorAll("#period-seg button").forEach(x=>x.classList.remove("on"));
+    b.classList.add("on"); periodState.mode=b.dataset.p;
+    body.querySelector("#period-custom").style.display = b.dataset.p==="custom"?"flex":"none";
+    recompute();
+  });
+  body.querySelectorAll(".period-sel").forEach(s=>s.onchange=recompute);
+  recompute();
+
+  // 주간 추이 키워드 선택
+  const last8 = weekCols.slice(-8);
+  const kwOptions = filtered.map(r=>r.keyword);
+  let defaults = ranked.filter(c=>c.이번주>=1000).sort((a,b)=>b.변화율-a.변화율).slice(0,5).map(c=>c.keyword).filter(k=>kwOptions.includes(k));
+  const picked=[...defaults];
+  buildMultiselect(document.getElementById("trend-kw-pick"), kwOptions, picked, ()=>{ if(picked.length>10)picked.length=10; drawTrend(filtered,last8,picked); });
+  drawTrend(filtered,last8,picked);
+}
+
+function renderPeriodSections(filtered, cols){
+  const sub = filtered.map(r=>{ const o={keyword:r.keyword}; cols.forEach(c=>o[c]=r[c]); return o; });
+  const ch = calcChanges(sub, cols);
+  const ranked = ch.filter(c=>c.변화율!=null);
+
+  // 급상승/급하락
+  const movers=document.getElementById("movers");
+  if(ranked.length){
+    const up=[...ranked].sort((a,b)=>b.변화량-a.변화량).slice(0,100);
+    const down=[...ranked].sort((a,b)=>a.변화량-b.변화량).slice(0,100);
+    const moverTbl=(rows)=>`<div class="tbl-wrap scroll-box"><table><thead><tr>
+        <th class="lcell">키워드</th><th>이번주</th><th>지난주</th><th>변화량</th><th>변화율</th></tr></thead><tbody>
+        ${rows.map(r=>`<tr><td class="lcell">${r.keyword}</td><td>${fmt(r.이번주)}</td><td>${fmt(r.지난주)}</td>
+        <td class="${r.변화량>0?'up':r.변화량<0?'down':'flat'}">${r.변화량>0?'+':''}${fmt(r.변화량)}</td>
+        <td class="${r.변화율>0?'up':r.변화율<0?'down':'flat'}">${pct(r.변화율)}</td></tr>`).join("")}</tbody></table></div>`;
+    movers.innerHTML=`<div><div class="subhead">🔥 급상승 TOP 100</div>${moverTbl(up)}</div>
+                      <div><div class="subhead">❄️ 급하락 TOP 100</div>${moverTbl(down)}</div>`;
+  } else movers.innerHTML="";
+
+  // 순위표
+  const latest=cols[cols.length-1], prev=cols.length>=2?cols[cols.length-2]:null;
+  const rateMap={}; ch.forEach(c=>rateMap[c.keyword]=c.변화율);
+  const rankRows=[...sub].sort((a,b)=>b[latest]-a[latest]);
+  const CAP=500, rShown=rankRows.slice(0,CAP);
+  document.getElementById("rank-table").innerHTML=`<div class="metric"><b>${rankRows.length}</b>개 키워드</div>
+    <div class="tbl-wrap scroll-box"><table><thead><tr><th>순위</th><th class="lcell">키워드</th><th>지난주</th><th>이번주</th><th>변화율</th></tr></thead><tbody>
+    ${rShown.map((r,i)=>`<tr><td>${i+1}</td><td class="lcell">${r.keyword}</td><td>${prev?fmt(r[prev]):'-'}</td><td>${fmt(r[latest])}</td>
+      <td class="${rateMap[r.keyword]>0?'up':rateMap[r.keyword]<0?'down':'flat'}">${pct(rateMap[r.keyword])}</td></tr>`).join("")}
+    </tbody></table></div>${rankRows.length>CAP?`<div class="cap-note">전체 ${fmt(rankRows.length)}개 중 상위 ${CAP}개 표시 — 위의 계절/카테고리/검색 필터로 좁혀보세요.</div>`:""}`;
+
+  // 전체 데이터
+  const fShown=sub.slice(0,CAP);
+  document.getElementById("full-table").innerHTML=`<div class="tbl-wrap scroll-box"><table><thead><tr>
+    <th class="lcell">키워드</th>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>
+    ${fShown.map(r=>`<tr><td class="lcell">${r.keyword}</td>${cols.map(c=>`<td>${fmt(r[c])}</td>`).join("")}</tr>`).join("")}
+    </tbody></table></div>${sub.length>CAP?`<div class="cap-note">전체 ${fmt(sub.length)}개 중 상위 ${CAP}개 표시 — 필터로 좁혀보세요.</div>`:""}`;
+}
+
+/* ── 차트들 ────────────────────────────────────────────────── */
+function destroy(id){ if(charts[id]){charts[id].destroy(); delete charts[id];} }
+
+function drawBubble(ranked){
+  const host=document.getElementById("bubble-host");
+  let df = ranked.filter(c=>c.이번주>=5000 && c.변화율!=null);
+  df = df.sort((a,b)=>b.이번주-a.이번주).slice(0,50);
+  if(!df.length){ host.innerHTML=`<div class="info">조건에 맞는 키워드 없음 (이번주 검색수 5,000 이상 필요)</div>`; return; }
+  host.innerHTML=`<div class="chart-box" style="height:480px"><canvas id="c-bubble"></canvas></div>`;
+  const maxVol=Math.max(...df.map(d=>d.이번주));
+  const data=df.map(d=>({x:d.이번주, y:d.변화율, r:Math.max(d.이번주/maxVol*40,5), kw:d.keyword, prev:d.지난주,
+    bg: d.변화율>=0 ? `rgba(224,82,82,${Math.min(.4+Math.abs(d.변화율)/200,.95)})` : `rgba(59,125,224,${Math.min(.4+Math.abs(d.변화율)/200,.95)})`}));
+  destroy("c-bubble");
+  charts["c-bubble"]=new Chart(document.getElementById("c-bubble"),{
+    type:"bubble",
+    data:{datasets:[{data, backgroundColor:data.map(d=>d.bg), borderColor:"rgba(255,255,255,.7)", borderWidth:.5}]},
+    options:{maintainAspectRatio:false, plugins:{legend:{display:false},
+      datalabels:{color:"#1a1a1a",font:{size:9,weight:600},formatter:(v)=>v.kw,display:(ctx)=>ctx.dataset.data[ctx.dataIndex].r>14},
+      tooltip:{callbacks:{label:(c)=>{const d=c.raw;return [`${d.kw}`,`이번주: ${fmt(d.x)}`,`지난주: ${fmt(d.prev)}`,`변화율: ${pct(d.y)}`];}}}},
+      scales:{x:{title:{display:true,text:"이번주 검색수"},ticks:{callback:v=>fmt(v)}},
+              y:{title:{display:true,text:"전주 대비 변화율 (%)"},grid:{color:(c)=>c.tick.value===0?"#999":"rgba(0,0,0,.05)"}}}},
+    plugins:[ChartDataLabels]
+  });
+}
+
+function drawTop10(filtered, weekCols){
+  destroy("c-top10");
+  if(!weekCols.length) return;
+  const latest=weekCols[weekCols.length-1];
+  const top=[...filtered].sort((a,b)=>b[latest]-a[latest]).slice(0,10).reverse();
+  charts["c-top10"]=new Chart(document.getElementById("c-top10"),{
+    type:"bar",
+    data:{labels:top.map(t=>t.keyword),datasets:[{data:top.map(t=>t[latest]),
+      backgroundColor:top.map((_,i)=>`rgba(91,79,212,${.35+i/top.length*.6})`),borderRadius:5}]},
+    options:{indexAxis:"y",maintainAspectRatio:false,plugins:{legend:{display:false},
+      datalabels:{anchor:"end",align:"end",color:"var(--muted)",font:{size:10},formatter:v=>fmt(v)},
+      tooltip:{callbacks:{label:c=>fmt(c.parsed.x)}}},
+      scales:{x:{display:false,grace:"15%"},y:{ticks:{font:{size:11}}}}},
+    plugins:[ChartDataLabels]
+  });
+}
+
+function drawSeasonTransition(nextSeason, weekCols){
+  destroy("c-season");
+  const host=document.getElementById("c-season").parentElement;
+  const kws=Object.keys(STATE.meta).filter(k=>(STATE.meta[k].season||"").includes(nextSeason));
+  if(!kws.length || weekCols.length<2){ host.innerHTML=`<div class="info">${nextSeason} 키워드 없음</div>`; return; }
+  const last4=weekCols.slice(-4);
+  const sums=last4.map(c=> STATE.weekly.filter(r=>kws.includes(r.keyword)).reduce((s,r)=>s+(r[c]||0),0));
+  charts["c-season"]=new Chart(document.getElementById("c-season"),{
+    type:"line",
+    data:{labels:last4,datasets:[{data:sums,borderColor:"#667eea",backgroundColor:"rgba(102,126,234,.1)",
+      borderWidth:2.5,pointRadius:5,fill:true,tension:.3}]},
+    options:{maintainAspectRatio:false,plugins:{legend:{display:false},datalabels:{display:false},
+      tooltip:{callbacks:{label:c=>fmt(c.parsed.y)}}},scales:{y:{ticks:{callback:v=>fmt(v)}}}}
+  });
+}
+
+function drawTrend(filtered, cols, picked){
+  destroy("c-trend");
+  const palette=["#7B6FE8","#E05252","#2DA882","#D97706","#3B7DE0","#C44FBE","#0EA5A5","#EC4899","#84CC16","#6366F1"];
+  const datasets=picked.map((kw,i)=>{
+    const row=filtered.find(r=>r.keyword===kw);
+    return {label:kw,data:cols.map(c=>row?row[c]:null),borderColor:palette[i%palette.length],
+      backgroundColor:palette[i%palette.length],borderWidth:2,pointRadius:3,tension:.25};
+  });
+  charts["c-trend"]=new Chart(document.getElementById("c-trend"),{
+    type:"line",data:{labels:cols,datasets},
+    options:{maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
+      plugins:{legend:{position:"bottom",labels:{boxWidth:12,font:{size:11}}},datalabels:{display:false},
+      tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${fmt(c.parsed.y)}`}}},
+      scales:{y:{ticks:{callback:v=>fmt(v)}}}}
+  });
+}
+
+/* ── 필터 UI 바인딩 ────────────────────────────────────────── */
+function initFilters(){
+  const seasons=[...new Set(Object.values(STATE.meta).map(m=>m.season).filter(Boolean))].sort();
+  const cats=[...new Set(Object.values(STATE.meta).map(m=>m.category).filter(Boolean))].sort();
+  const genders=[...new Set(Object.values(STATE.meta).map(m=>m.gender).filter(Boolean))].sort();
+  FILTER.seasons=FILTER.seasons.filter(s=>seasons.includes(s));
+  FILTER.categories=FILTER.categories.filter(s=>cats.includes(s));
+  FILTER.genders=FILTER.genders.filter(s=>genders.includes(s));
+  const onChange=()=>{ saveFilters(); renderWeekly(); };
+  buildMultiselect(document.getElementById("f-season"),seasons,FILTER.seasons,onChange);
+  buildMultiselect(document.getElementById("f-category"),cats,FILTER.categories,onChange);
+  buildMultiselect(document.getElementById("f-gender"),genders,FILTER.genders,onChange);
+  const si=document.getElementById("f-search");
+  let t; si.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>{FILTER.search=si.value.trim(); renderWeekly();},250); };
+}
+
+/* ── 부트스트랩 ────────────────────────────────────────────── */
+async function boot(){
+  document.getElementById("updatedAt").textContent=kstNow();
+  try{
+    const kd = await api("keyword_dict");
+    const {weekly, weekCols, meta} = parseKeywordDict(kd);
+    Object.assign(STATE,{weekly,weekCols,meta});
+    document.getElementById("connState").textContent = CONFIG.API_URL ? "연결됨" : "목업 모드";
+    initFilters();
+    renderWeekly();
+  }catch(e){
+    document.getElementById("connState").textContent="연결 실패";
+    document.getElementById("weekly-body").innerHTML=`<div class="info">데이터 로드 실패: ${e.message}<br>Apps Script URL과 배포 상태를 확인하세요.</div>`;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MOCK DATA — CONFIG.API_URL 이 비어있을 때 UI 미리보기용
+   ═══════════════════════════════════════════════════════════════ */
+const MOCK = (function(){
+  const weeks=["2025-W14","2025-W15","2025-W16","2025-W17","2025-W18","2025-W19","2025-W20","2025-W21","2025-W22"];
+  // [계절,복종,연령,성별,카테고리,대표키워드,키워드, w1..w9(천 단위)]
+  const seed=[
+    ["여름","상의","2~3세","여아","원피스","원피스","유아원피스",4,5,6.5,7,8,9,9.5,11,13],
+    ["여름","하의","4~6세","남아","반바지","반바지","아동반바지",3,3.3,3.8,4.4,5.2,6.1,7.2,8.6,10.2],
+    ["여름","용품","공용","공용","래쉬가드","래쉬가드","유아래쉬가드",5,5.6,6.4,7.5,8.8,10.4,12.2,14.4,17],
+    ["겨울","상의","2~3세","여아","패딩","패딩","유아패딩",18,14,10,8,6.5,5.5,4.8,4.2,3.8],
+    ["봄","상의","4~6세","공용","바람막이","바람막이","아동바람막이",9,9.8,10.5,11,10.2,9.1,8,7.1,6.3],
+    ["가을","하의","공용","공용","기모바지","기모바지","유아기모바지",2,2.1,2.3,2.5,2.4,2.3,2.6,3.1,3.8],
+    ["여름","용품","공용","공용","수영복","수영복","아동수영복",8,9.2,10.8,12.6,14.8,17.4,20,23,27],
+    ["여름","상의","2~3세","남아","나시","나시","유아나시",4.5,4.9,5.5,6.3,7.4,8.7,10.2,12,14],
+    ["봄","상의","2~3세","여아","가디건","가디건","유아가디건",7,7.4,7.8,7.6,7,6.2,5.5,4.9,4.4],
+    ["겨울","용품","공용","공용","목도리","목도리","아동목도리",3,2.8,2.6,2.4,2.2,2,1.8,1.6,1.4],
+    ["여름","하의","4~6세","여아","치마바지","치마바지","아동치마바지",6,6.6,7.6,8.9,10.5,12.4,14.6,17.2,20],
+    ["가을","상의","4~6세","공용","맨투맨","맨투맨","아동맨투맨",10,10.4,11,10.6,11.2,12.4,13.8,15.4,17.2],
+  ];
+  const header=["계절","복종","연령","성별","카테고리","대표키워드","키워드",...weeks];
+  const rows=seed.map(s=>{ const base=s.slice(0,7); const vals=s.slice(7).map(v=>Math.round(v*1000)); return [...base,...vals]; });
+  return {keyword_dict:{header,rows}};
+})();
+
+boot();
+</script>
+</body>
+</html>
