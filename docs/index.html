@@ -107,6 +107,12 @@ tbody tr:hover{background:var(--surface2)}
 .ms-list label:hover{background:var(--surface2)}
 .ms-search{width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:7px;font-size:.78rem;margin-bottom:5px;outline:none}
 .cap-note{font-size:.72rem;color:var(--muted);margin:6px 2px 0}
+.rank-search{padding:8px 11px;border:1px solid var(--border2);border-radius:9px;font-size:.82rem;outline:none;min-width:240px;margin-bottom:8px}
+.rank-search:focus{border-color:var(--accent)}
+.dl-btn{border:1px solid var(--border2);background:var(--surface);color:var(--accent-d);padding:9px 15px;border-radius:9px;font-weight:700;font-size:.82rem}
+.dl-btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.dl-btn:hover{filter:brightness(.97)}
+.r-up{color:var(--green)} .r-down{color:var(--red)}
 </style>
 </head>
 <body>
@@ -142,13 +148,12 @@ tbody tr:hover{background:var(--surface2)}
       <div id="weekly-body"><div class="loading"><div class="spinner"></div>데이터 불러오는 중…</div></div>
     </section>
 
-    <!-- Other pages (Phase 2) -->
-    <section id="page-trend" hidden><div class="info">📊 연간 트렌드 — 2단계에서 추가됩니다.</div></section>
-    <section id="page-shopping" hidden><div class="info">🛒 쇼핑검색 순위 — 2단계에서 추가됩니다.</div></section>
-    <section id="page-powerlink" hidden><div class="info">🔗 파워링크 순위 — 2단계에서 추가됩니다.</div></section>
-    <section id="page-blogcafe" hidden><div class="info">📝 블로그/카페 순위 — 2단계에서 추가됩니다.</div></section>
-    <section id="page-newkw" hidden><div class="info">🆕 신규키워드 개발 — 2단계에서 추가됩니다.</div></section>
-    <section id="page-manage" hidden><div id="manage-body"><div class="info">⚙️ 데이터 관리</div></div></section>
+    <section id="page-trend" hidden><div id="trend-body"></div></section>
+    <section id="page-shopping" hidden><div id="shopping-body"></div></section>
+    <section id="page-powerlink" hidden><div id="powerlink-body"></div></section>
+    <section id="page-blogcafe" hidden><div id="blogcafe-body"></div></section>
+    <section id="page-newkw" hidden><div id="newkw-body"></div></section>
+    <section id="page-manage" hidden><div id="manage-body"></div></section>
   </main>
 </div>
 
@@ -300,12 +305,19 @@ function buildMultiselect(host, options, selected, onChange){
 document.addEventListener("click",()=>document.querySelectorAll(".ms-list").forEach(l=>l.classList.remove("open")));
 
 /* ── 네비게이션 ────────────────────────────────────────────── */
+const rendered=new Set(["weekly"]);
+const PAGE_RENDER={
+  trend:renderTrend, shopping:()=>renderRank("shopping"), powerlink:()=>renderRank("powerlink"),
+  blogcafe:renderBlogCafe, newkw:renderNewkw, manage:renderManage,
+};
 document.querySelectorAll(".nav-item").forEach(btn=>btn.onclick=()=>{
   document.querySelectorAll(".nav-item").forEach(b=>b.classList.remove("active"));
   btn.classList.add("active");
   const pg=btn.dataset.page;
   document.querySelectorAll("main section").forEach(s=>s.hidden = s.id!==`page-${pg}`);
+  if(!rendered.has(pg) && PAGE_RENDER[pg]){ rendered.add(pg); try{ PAGE_RENDER[pg](); }catch(e){ console.error(e); } }
 });
+const loadingHTML=`<div class="loading"><div class="spinner"></div>불러오는 중…</div>`;
 
 /* ═══════════════════════════════════════════════════════════════
    PAGE 1 — 주간 검색수
@@ -502,11 +514,207 @@ function initFilters(){
   let t; si.oninput=()=>{ clearTimeout(t); t=setTimeout(()=>{FILTER.search=si.value.trim(); renderWeekly();},250); };
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   PAGE 2~7 — 연간트렌드 / 쇼핑·파워링크 / 블로그·카페 / 신규키워드 / 데이터관리
+   ═══════════════════════════════════════════════════════════════ */
+function isoWeek(dateStr){
+  const d=new Date(String(dateStr).slice(0,10)+"T00:00:00Z");
+  if(isNaN(d.getTime())) return null;
+  const t=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()));
+  const day=(t.getUTCDay()+6)%7; t.setUTCDate(t.getUTCDate()-day+3);
+  const firstThu=new Date(Date.UTC(t.getUTCFullYear(),0,4));
+  const fday=(firstThu.getUTCDay()+6)%7; firstThu.setUTCDate(firstThu.getUTCDate()-fday+3);
+  return {year:t.getUTCFullYear(), week:1+Math.round((t-firstThu)/(7*864e5))};
+}
+function renderTableFromSheet(el, data, cap=300){
+  const H=(data&&data.header)||[], rows=(data&&data.rows)||[];
+  if(!rows.length){ el.innerHTML=`<div class="info">데이터 없음</div>`; return; }
+  const shown=rows.slice(0,cap);
+  el.innerHTML=`<div class="metric"><b>${fmt(rows.length)}</b>건</div><div class="tbl-wrap scroll-box"><table><thead><tr>${H.map(h=>`<th class="lcell">${h}</th>`).join("")}</tr></thead><tbody>
+    ${shown.map(r=>`<tr>${r.map(c=>`<td class="lcell">${c==null?"":c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${rows.length>cap?`<div class="cap-note">전체 ${fmt(rows.length)}건 중 상위 ${cap}건 표시.</div>`:""}`;
+}
+
+/* ── 연간 트렌드 ── */
+async function renderTrend(){
+  const body=document.getElementById("trend-body"); body.innerHTML=loadingHTML;
+  let data; try{ data=await api("trend"); }catch(e){ body.innerHTML=`<div class="info">로드 실패: ${e.message}</div>`; return; }
+  const rows=(data&&data.rows)||[], H=(data&&data.header)||[];
+  const iDate=H.indexOf("date"), iKw=H.indexOf("keyword"), iVol=H.indexOf("estimated_weekly_volume");
+  if(!rows.length||iDate<0||iKw<0){ body.innerHTML=`<div class="info">연간 트렌드 데이터가 없습니다. (기존 수집 도구의 '최신 데이터 수집' 실행 필요)</div>`; return; }
+  const map={}, years=new Set(), totals={};
+  rows.forEach(r=>{
+    const kw=r[iKw], iso=isoWeek(r[iDate]); if(!iso||!kw) return;
+    const vol=+String(r[iVol]).replace(/,/g,"")||0;
+    map[kw]=map[kw]||{}; map[kw][iso.year]=map[kw][iso.year]||{}; map[kw][iso.year][iso.week]=vol;
+    years.add(iso.year); totals[kw]=(totals[kw]||0)+vol;
+  });
+  const yrs=[...years].sort(); const curY=yrs[yrs.length-1], lastY=curY-1;
+  const kws=Object.keys(map).sort((a,b)=>totals[b]-totals[a]);
+  const annKw=String((STATE.settings&&STATE.settings.ann_keywords)||"").split(",").map(s=>s.trim()).filter(Boolean).filter(k=>kws.includes(k));
+  const picked=annKw.length?annKw.slice(0,5):kws.slice(0,3);
+  const lastCol=(STATE.settings&&STATE.settings.trend_last_collected)||"-";
+  body.innerHTML=`
+    <div class="card-title" style="margin-top:6px">📊 올해(${curY}) vs 작년(${lastY}) 주간 검색수 추이</div>
+    <div style="font-size:.74rem;color:var(--muted);margin-bottom:10px">마지막 수집: ${lastCol} · 실선=올해, 점선=작년 · 같은 ISO 주차끼리 비교</div>
+    <div class="ms-pop" id="trend2-pick" style="max-width:380px;margin-bottom:10px"></div>
+    <div class="card"><div class="chart-box" style="height:460px"><canvas id="c-trend2"></canvas></div></div>`;
+  const draw=()=>drawYoY(map,curY,lastY,picked);
+  buildMultiselect(document.getElementById("trend2-pick"), kws, picked, ()=>{ if(picked.length>5)picked.length=5; draw(); });
+  draw();
+}
+function drawYoY(map,curY,lastY,picked){
+  destroy("c-trend2");
+  const palette=["#7B6FE8","#E05252","#2DA882","#D97706","#3B7DE0"];
+  const weeks=Array.from({length:53},(_,i)=>i+1), ds=[];
+  picked.forEach((kw,i)=>{
+    const col=palette[i%palette.length], cur=map[kw][curY]||{}, last=map[kw][lastY]||{};
+    ds.push({label:`${kw} ${curY}`,data:weeks.map(w=>cur[w]??null),borderColor:col,backgroundColor:col,borderWidth:2,pointRadius:0,tension:.3,spanGaps:true});
+    ds.push({label:`${kw} ${lastY}`,data:weeks.map(w=>last[w]??null),borderColor:col,backgroundColor:col,borderWidth:1.5,borderDash:[5,4],pointRadius:0,tension:.3,spanGaps:true});
+  });
+  charts["c-trend2"]=new Chart(document.getElementById("c-trend2"),{
+    type:"line",data:{labels:weeks.map(w=>w+"주"),datasets:ds},
+    options:{maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
+      plugins:{legend:{position:"bottom",labels:{boxWidth:12,font:{size:10}}},datalabels:{display:false},
+        tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${fmt(c.parsed.y)}`}}},
+      scales:{y:{ticks:{callback:v=>fmt(v)}},x:{ticks:{maxTicksLimit:26,font:{size:9}}}}}
+  });
+}
+
+/* ── 순위 공통 ── */
+function parseRank(data){
+  const H=(data&&data.header)||[]; if(!H.length) return {weekCols:[],rows:[]};
+  const iKw=H.indexOf("keyword"), iS=H.indexOf("계절"), iI=H.indexOf("품목");
+  const metaIdx=new Set([iKw,iS,iI].filter(x=>x>=0)), weekIdx=[];
+  H.forEach((c,i)=>{ if(!metaIdx.has(i)) weekIdx.push(i); });
+  const weekCols=weekIdx.map(i=>H[i]);
+  const rows=((data&&data.rows)||[]).map(r=>{
+    const o={keyword:String(r[iKw]||"").trim(), item:iI>=0?(r[iI]||""):"", w:{}};
+    weekIdx.forEach((ci,j)=>{ const v=r[ci]; o.w[weekCols[j]]=(v===""||v==null)?null:(+v); });
+    return o;
+  }).filter(o=>o.keyword);
+  return {weekCols,rows};
+}
+async function renderRank(type){
+  const body=document.getElementById(type+"-body"); body.innerHTML=loadingHTML;
+  let data; try{ data=await api("rank",{type}); }catch(e){ body.innerHTML=`<div class="info">로드 실패: ${e.message}</div>`; return; }
+  const {weekCols,rows}=parseRank(data);
+  if(!rows.length){ body.innerHTML=`<div class="info">데이터가 없습니다.</div>`; return; }
+  const title=type==="shopping"?"🛒 쇼핑검색 순위":"🔗 파워링크 순위";
+  body.innerHTML=`
+    <div class="card-title" style="margin-top:6px">${title}</div>
+    <div style="font-size:.74rem;color:var(--muted);margin:4px 0 10px">숫자=평균 노출순위(낮을수록 상위) · 빈칸=미노출 · 🔺상승 🔻하락 (최신 주차)</div>
+    <input id="${type}-search" class="rank-search" placeholder="🔎 키워드 검색...">
+    <div id="${type}-table"></div>`;
+  const cols=[...weekCols].reverse(), latest=weekCols[weekCols.length-1], prev=weekCols[weekCols.length-2];
+  const render=(q)=>{
+    let list=rows.filter(r=>!q||r.keyword.toLowerCase().includes(q));
+    list.sort((a,b)=>{const x=a.w[latest],y=b.w[latest];if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return x-y;});
+    const CAP=500, shown=list.slice(0,CAP);
+    const rk=v=>v==null?'<span class="flat">-</span>':v;
+    const arrow=r=>{const c=r.w[latest],p=prev?r.w[prev]:null;if(c==null||p==null)return"";if(c<p)return' <span class="r-up">🔺</span>';if(c>p)return' <span class="r-down">🔻</span>';return"";};
+    document.getElementById(type+"-table").innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 키워드</div>
+      <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">키워드</th><th class="lcell">품목</th>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>
+      ${shown.map(r=>`<tr><td class="lcell">${r.keyword}</td><td class="lcell" style="font-weight:400;color:var(--muted);font-size:.72rem">${r.item||""}</td>
+        ${cols.map(c=>`<td>${c===latest?rk(r.w[c])+arrow(r):rk(r.w[c])}</td>`).join("")}</tr>`).join("")}
+      </tbody></table></div>${list.length>CAP?`<div class="cap-note">전체 ${fmt(list.length)}개 중 상위 ${CAP}개 표시 — 검색으로 좁히세요.</div>`:""}`;
+  };
+  render(""); const si=document.getElementById(type+"-search"); let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>render(si.value.trim().toLowerCase()),250);};
+}
+
+/* ── 블로그/카페 순위 ── */
+async function renderBlogCafe(){
+  const body=document.getElementById("blogcafe-body"); body.innerHTML=loadingHTML;
+  let blog,cafe;
+  try{ [blog,cafe]=await Promise.all([api("rank",{type:"blog"}),api("rank",{type:"cafe"})]); }
+  catch(e){ body.innerHTML=`<div class="info">로드 실패: ${e.message}</div>`; return; }
+  body.innerHTML=`
+    <div class="card-title" style="margin-top:6px">📝 블로그/카페 순위</div>
+    <div style="font-size:.74rem;color:var(--muted);margin:4px 0 10px">'오즈키즈' 노출 순위 · 0=순위권 밖 · 빈칸=미조회 · 🔺상승 🔻하락</div>
+    <div class="seg" id="bc-seg"><button data-t="blog" class="on">📝 블로그</button><button data-t="cafe">☕ 카페</button></div>
+    <input id="bc-search" class="rank-search" placeholder="🔎 키워드 검색..." style="margin:10px 0 0;display:block">
+    <div id="bc-table"></div>`;
+  const parsed={blog:parseRank(blog),cafe:parseRank(cafe)}; let cur="blog";
+  const render=q=>{
+    const {weekCols,rows}=parsed[cur]; const cols=[...weekCols].reverse(), latest=weekCols[weekCols.length-1], prev=weekCols[weekCols.length-2];
+    let list=rows.filter(r=>!q||r.keyword.toLowerCase().includes(q));
+    list.sort((a,b)=>{const x=a.w[latest],y=b.w[latest];const xx=x==null?1e9:(x===0?1e8:x),yy=y==null?1e9:(y===0?1e8:y);return xx-yy;});
+    const CAP=500, shown=list.slice(0,CAP);
+    const rk=v=>v==null?'<span class="flat">-</span>':(v===0?'<span class="flat">순위권 밖</span>':v);
+    const arrow=r=>{const c=r.w[latest],p=prev?r.w[prev]:null;if(c==null||p==null||c===0||p===0)return"";if(c<p)return' <span class="r-up">🔺</span>';if(c>p)return' <span class="r-down">🔻</span>';return"";};
+    document.getElementById("bc-table").innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 키워드</div>
+      <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">키워드</th>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>
+      ${shown.map(r=>`<tr><td class="lcell">${r.keyword}</td>${cols.map(c=>`<td>${c===latest?rk(r.w[c])+arrow(r):rk(r.w[c])}</td>`).join("")}</tr>`).join("")}
+      </tbody></table></div>${list.length>CAP?`<div class="cap-note">전체 ${fmt(list.length)}개 중 상위 ${CAP}개 표시.</div>`:""}`;
+  };
+  body.querySelectorAll("#bc-seg button").forEach(b=>b.onclick=()=>{body.querySelectorAll("#bc-seg button").forEach(x=>x.classList.remove("on"));b.classList.add("on");cur=b.dataset.t;render(document.getElementById("bc-search").value.trim().toLowerCase());});
+  const si=document.getElementById("bc-search"); let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>render(si.value.trim().toLowerCase()),250);};
+  render("");
+}
+
+/* ── 신규키워드 개발 ── */
+async function renderNewkw(){
+  const body=document.getElementById("newkw-body"); body.innerHTML=loadingHTML;
+  let hist; try{ hist=await api("newkw"); }catch(e){ hist={header:[],rows:[]}; }
+  body.innerHTML=`
+    <div class="card-title" style="margin-top:6px">🆕 신규키워드 개발</div>
+    <div class="card">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div style="flex:1;min-width:220px"><label style="font-size:.74rem;color:var(--muted);display:block;margin-bottom:4px">제품명 (쉼표로 여러 개)</label>
+          <input id="nk-seed" placeholder="예: 아기옷, 바람막이, 체험장갑" style="width:100%;padding:9px 11px;border:1px solid var(--border2);border-radius:9px;outline:none"></div>
+        <button id="nk-go" class="dl-btn primary">🔍 연관 키워드 조회</button>
+      </div>
+      <div id="nk-note" class="cap-note">네이버 검색 데이터를 실시간 호출합니다(Apps Script에 네이버 키 설정 필요).</div>
+    </div>
+    <div id="nk-result"></div>
+    <div class="subhead">📜 저장된 신규키워드 이력</div>
+    <div id="nk-hist"></div>`;
+  renderTableFromSheet(document.getElementById("nk-hist"), hist, 300);
+  const seed=document.getElementById("nk-seed"), go=document.getElementById("nk-go"), note=document.getElementById("nk-note"), res=document.getElementById("nk-result");
+  go.onclick=async()=>{
+    const s=seed.value.trim(); if(!s){ note.textContent="제품명을 입력하세요."; return; }
+    const seeds=s.split(/[,\n]+/).map(x=>x.replace(/\s/g,"")).filter(Boolean);
+    res.innerHTML=loadingHTML; note.textContent="조회 중… (키워드당 5~10초)";
+    try{
+      const m={};
+      for(const sd of seeds){ const r=await api("related_kw",{seed:sd}); (r&&r.results||[]).forEach(x=>{ const k=x.keyword; if(!m[k])m[k]={keyword:k,월간검색수:x.월간검색수||0,출현빈도:x.출현빈도||0}; else{m[k].월간검색수=Math.max(m[k].월간검색수,x.월간검색수||0);m[k].출현빈도=Math.max(m[k].출현빈도,x.출현빈도||0);} }); }
+      let list=Object.values(m);
+      note.textContent="";
+      if(!list.length){ res.innerHTML=`<div class="info">연관 키워드를 찾지 못했어요. (Apps Script에 네이버 키가 설정돼 있어야 합니다)</div>`; return; }
+      list.sort((a,b)=>(b.출현빈도-a.출현빈도)||(b.월간검색수-a.월간검색수));
+      res.innerHTML=`<div class="subhead">🔎 연관 키워드 (${list.length})</div>
+        <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">키워드</th><th>월간검색수</th><th>출현빈도</th></tr></thead><tbody>
+        ${list.slice(0,200).map(x=>`<tr><td class="lcell">${x.keyword}</td><td>${fmt(x.월간검색수)}</td><td>${fmt(x.출현빈도)}</td></tr>`).join("")}
+        </tbody></table></div>`;
+    }catch(e){ res.innerHTML=`<div class="info">조회 실패: ${e.message}<br>Apps Script에 네이버 키 설정이 필요할 수 있어요.</div>`; note.textContent=""; }
+  };
+}
+
+/* ── 데이터 관리 ── */
+async function renderManage(){
+  const body=document.getElementById("manage-body"); body.innerHTML=loadingHTML;
+  let settings=STATE.settings; if(!settings){ try{ settings=await api("settings"); STATE.settings=settings; }catch(e){ settings={}; } }
+  const rows=Object.entries(settings||{});
+  body.innerHTML=`
+    <div class="card-title" style="margin-top:6px">⚙️ 데이터 관리</div>
+    <div class="card"><div style="font-size:.84rem;line-height:2.1">
+      <div>연결 상태: <b style="color:var(--green)">${CONFIG.API_URL?"연결됨":"목업 모드"}</b></div>
+      <div>키워드 수: <b>${fmt(STATE.weekly.length)}</b>개</div>
+      <div>주차 수: <b>${STATE.weekCols.length}</b>주</div>
+      <div>최신 주차: <b>${STATE.weekCols[STATE.weekCols.length-1]||"-"}</b></div>
+    </div><button id="mg-refresh" class="dl-btn" style="margin-top:12px">🔄 데이터 새로고침</button></div>
+    <div class="subhead">🔧 설정값 (설정 시트)</div>
+    <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">key</th><th class="lcell">value</th></tr></thead><tbody>
+      ${rows.map(([k,v])=>`<tr><td class="lcell">${k}</td><td class="lcell">${v}</td></tr>`).join("")||`<tr><td class="lcell" colspan="2">설정 없음</td></tr>`}
+    </tbody></table></div>`;
+  document.getElementById("mg-refresh").onclick=()=>location.reload();
+}
+
 /* ── 부트스트랩 ────────────────────────────────────────────── */
 async function boot(){
   document.getElementById("updatedAt").textContent=kstNow();
   try{
-    const kd = await api("keyword_dict");
+    const [kd, settings] = await Promise.all([ api("keyword_dict"), api("settings").catch(()=>({})) ]);
+    STATE.settings = settings || {};
     const {weekly, weekCols, meta} = parseKeywordDict(kd);
     Object.assign(STATE,{weekly,weekCols,meta});
     document.getElementById("connState").textContent = CONFIG.API_URL ? "연결됨" : "목업 모드";
