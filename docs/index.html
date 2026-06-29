@@ -633,12 +633,28 @@ async function renderTrend(){
   const lastCol=(STATE.settings&&STATE.settings.trend_last_collected)||"-";
   body.innerHTML=`
     <div class="card-title" style="margin-top:6px">📊 올해(${curY}) vs 작년(${lastY}) 주간 검색수 추이</div>
-    <div style="font-size:.74rem;color:var(--muted);margin-bottom:10px">마지막 수집: ${lastCol} · 실선=올해, 점선=작년 · 같은 ISO 주차끼리 비교</div>
+    <div style="font-size:.74rem;color:var(--muted);margin-bottom:10px">마지막 수집: <span id="trend-last">${lastCol}</span> · 실선=올해, 점선=작년 · 같은 ISO 주차끼리 비교</div>
+    <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button id="trend-collect" class="dl-btn primary">🔄 최신 데이터 수집</button>
+      <span id="trend-collect-msg" class="cap-note" style="margin:0"></span>
+    </div>
     <div class="ms-pop" id="trend2-pick" style="max-width:380px;margin-bottom:10px"></div>
     <div class="card"><div class="chart-box" style="height:460px"><canvas id="c-trend2"></canvas></div></div>`;
   const draw=()=>drawYoY(map,curY,lastY,picked);
   buildMultiselect(document.getElementById("trend2-pick"), kws, picked, ()=>{ if(picked.length>5)picked.length=5; draw(); saveSetting("ann_keywords", picked.join(",")); });
   draw();
+  const cbtn=document.getElementById("trend-collect"), cmsg=document.getElementById("trend-collect-msg");
+  cbtn.onclick=async()=>{
+    if(!confirm(`네이버 데이터랩 2년치를 다시 수집합니다.\n키워드 ${kws.length}개 — 1~2분 걸리고, 끝나면 자동 갱신됩니다.\n진행할까요?`)) return;
+    cbtn.disabled=true; cmsg.textContent="수집 중… (창을 닫지 마세요, 1~2분)";
+    try{
+      const r=await apiPost({action:"collect_trend"});
+      if(r.error) throw new Error(r.error);
+      if(r.collected) STATE.settings.trend_last_collected=r.collected;
+      cmsg.textContent=`✅ ${r.keywords}개 키워드·${fmt(r.rows)}행 수집 완료. 다시 불러옵니다…`;
+      setTimeout(()=>renderTrend(), 700);
+    }catch(e){ cbtn.disabled=false; cmsg.innerHTML=`<span style="color:var(--red)">수집 실패: ${e.message}</span>`; }
+  };
 }
 function drawYoY(map,curY,lastY,picked){
   destroy("c-trend2");

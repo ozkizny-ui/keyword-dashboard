@@ -110,6 +110,7 @@ var KWWEB = {
           return this.json({ ok: true, saved: rrows.length, week: body.week });
         }
         case 'save_trend':        this.saveTrend(body.header || [], body.rows || []); return this.json({ ok: true });
+        case 'collect_trend':     return this.json(this.collectTrend());
         default:                  return this.json({ error: 'unknown action' });
       }
     } catch (err) { return this.json({ error: String(err && err.stack || err) }); }
@@ -272,6 +273,50 @@ var KWWEB = {
     var dates = Object.keys(dateSet).sort(), ser = {};
     Object.keys(series).forEach(function (kw) { ser[kw] = dates.map(function (d) { return series[kw][d] != null ? series[kw][d] : null; }); });
     return { dates: dates, series: ser };
+  },
+
+  // ═══════════════ 연간 트렌드 수집 (datalab 2년 + 검색량 → 주간추정 → 저장) ═══════════════
+  // 키워드 = 기존 '연간트렌드' 시트의 고유 키워드(추적 세트 갱신)
+  trendKeywords: function () {
+    var d = this.sheetData(this.CFG.SHEET.trend), H = d.header, ik = H.indexOf('keyword');
+    if (ik < 0) return [];
+    var seen = {}, out = [];
+    d.rows.forEach(function (r) { var k = String(r[ik] || '').trim(); if (k && !seen[k]) { seen[k] = 1; out.push(k); } });
+    return out;
+  },
+  // estimate_weekly_search_volume 포팅: 최근4주 평균비율로 월간검색수를 주간으로 분배
+  estimateWeekly: function (trend, volMap) {
+    var dates = trend.dates, series = trend.series, out = [];
+    Object.keys(series).forEach(function (kw) {
+      var arr = series[kw], monthly = volMap[kw] || 0;
+      var last4 = arr.slice(-4).filter(function (v) { return v != null; });
+      if (!last4.length) return;
+      var avg = last4.reduce(function (a, b) { return a + b; }, 0) / last4.length;
+      if (avg === 0) return;
+      var scale = monthly / (avg * 4);
+      for (var i = 0; i < dates.length; i++) {
+        var val = arr[i] == null ? 0 : arr[i];
+        out.push([dates[i], kw, Math.round(val * scale), val]);
+      }
+    });
+    return out;
+  },
+  collectTrend: function () {
+    if (!this.CFG.NAVER_CLIENT_ID || !this.CFG.NAVER_AD_API_LICENSE) return { error: '네이버 키 미설정 (Config 시트 확인)' };
+    var kws = this.trendKeywords();
+    if (!kws.length) return { error: '수집할 키워드가 없습니다 (연간트렌드 시트가 비어있음).' };
+    var vols = this.fetchSearchVolume(kws, true), volMap = {};
+    vols.forEach(function (v) { volMap[v.keyword] = v.total; });
+    var end = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+    var d2 = new Date(); d2.setDate(d2.getDate() - 730);
+    var start = Utilities.formatDate(d2, 'Asia/Seoul', 'yyyy-MM-dd');
+    var trend = this.fetchDatalabTrend(kws, start, end);
+    var rows = this.estimateWeekly(trend, volMap);
+    if (!rows.length) return { error: '데이터랩 응답이 비어있습니다 (네이버 키/쿼터 확인).' };
+    this.saveTrend(['date', 'keyword', 'estimated_weekly_volume', 'ratio'], rows);
+    var ts = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+    this.saveSetting('trend_last_collected', ts);
+    return { ok: true, keywords: kws.length, rows: rows.length, collected: ts };
   },
 
   // ═══════════════ 네이버 검색 API — 블로그/카페 순위 ═══════════════
