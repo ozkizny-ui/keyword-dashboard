@@ -465,7 +465,13 @@ function renderWeekly(){
 
 function renderPeriodSections(filtered, cols){
   const sub = filtered.map(r=>{ const o={keyword:r.keyword}; cols.forEach(c=>o[c]=r[c]); return o; });
-  const ch = calcChanges(sub, cols);
+  // 변화 비교: 첫 선택(지난주) vs 두 번째 선택(이번주). '최근 2주'면 두 컬럼이 곧 지난주/이번주.
+  const first=cols[0], last=cols[cols.length-1];
+  const ch = sub.map(r=>{
+    const cur=r[last], pv=r[first], delta=cur-pv;
+    const rate = pv>0 ? Math.round(delta/pv*1000)/10 : null;
+    return {keyword:r.keyword, 이번주:cur, 지난주:pv, 변화량:delta, 변화율:rate};
+  });
   const ranked = ch.filter(c=>c.변화율!=null);
 
   // 급상승/급하락
