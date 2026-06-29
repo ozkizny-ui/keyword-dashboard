@@ -732,13 +732,13 @@ async function renderRank(type){
       list.sort((a,b)=>{const ka=key(a),kb=key(b); return ka[0]-kb[0] || ka[1]-kb[1];});
     }
     const CAP=500, shown=list.slice(0,CAP);
-    const rk=v=>v==null?'<span class="flat">-</span>':v;
+    const rk=v=>v==null?'<span class="flat">-</span>':Math.round(v);
     const badge=r=>{ const c=r.w[latest], p=r.w[prev];
       if(c==null&&p!=null) return '<span class="rk-b rk-n">이탈</span>';
       if(c!=null&&p==null) return '<span class="rk-b rk-new">신규</span>';
       if(c==null||p==null) return '';
-      const d=p-c; if(d===0) return '<span class="flat" style="font-size:.72rem">변화 없음</span>';
-      const mag=Math.abs(d), a=Math.min(0.16+mag*0.07,0.82), up=d>0;
+      const d=Math.round(p)-Math.round(c); if(d===0) return '<span class="flat" style="font-size:.72rem">변화 없음</span>';
+      const mag=Math.abs(d), a=Math.min(0.08+mag*0.04,0.48), up=d>0;
       return `<span class="rk-b" style="background:rgba(${up?'45,168,130':'224,82,82'},${a.toFixed(2)});color:${up?'#0f6e56':'#791f1f'}">${up?'▲':'▼'}${mag} ${up?'상승':'하락'}</span>`;
     };
     const arr=c=> colSort&&colSort.col===c ? (colSort.dir==="desc"?' ▼':' ▲') : '';
