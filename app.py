@@ -383,7 +383,7 @@ def load_weekly():
     """키워드사전 탭에서 주간검색수 데이터 로드 (fallback: 주간검색수 시트)"""
     kd = load_keyword_dict()
     if not kd.empty and "keyword" in kd.columns:
-        meta_cols = {"계절", "복종", "연령", "성별", "카테고리", "대표키워드", "키워드"}
+        meta_cols = {"계절", "복종", "연령", "성별", "카테고리", "대표키워드", "키워드", "시드"}
         week_cols = [c for c in kd.columns if c not in meta_cols and c != "keyword"]
         if week_cols:
             result = kd[["keyword"] + week_cols].copy()
@@ -2280,7 +2280,7 @@ elif selected_menu == "⚙️ 데이터 관리":
         if _kd.empty:
             st.warning("키워드사전 탭에 데이터가 없습니다. Apps Script로 수집을 실행하세요.")
         else:
-            _meta_cols = [c for c in ["계절", "복종", "연령", "성별", "카테고리", "대표키워드", "키워드"] if c in _kd.columns]
+            _meta_cols = [c for c in ["계절", "복종", "연령", "성별", "카테고리", "대표키워드", "키워드", "시드"] if c in _kd.columns]
             _week_cols = [c for c in _kd.columns if c not in set(_meta_cols) | {"keyword"}]
             st.success(f"✅ 키워드: **{len(_kd)}개** | 주차 데이터: **{len(_week_cols)}개**")
 

@@ -173,7 +173,7 @@ const CONFIG = {
 };
 
 const KST = "Asia/Seoul";
-const META_COLS = new Set(["계절","복종","연령","성별","카테고리","대표키워드","키워드"]);
+const META_COLS = new Set(["계절","복종","연령","성별","카테고리","대표키워드","키워드","시드"]);
 const fmt = n => (n==null||isNaN(n)) ? "-" : Math.round(n).toLocaleString("ko-KR");
 const pct = v => (v==null||isNaN(v)) ? "-" : (v>0?"+":"")+v.toFixed(1)+"%";
 // 주차 컬럼 라벨
