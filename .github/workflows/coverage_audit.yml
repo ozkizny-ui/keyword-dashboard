@@ -1,0 +1,42 @@
+name: Coverage Audit (대표키워드 커버 감사)
+
+# 로컬은 시계 skew로 네이버 API가 403(Invalid Timestamp)을 내므로,
+# 시각이 정확한 GitHub Actions에서 수동 실행한다.
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "앞 N개 대표키워드만 (0=전체, 스모크테스트는 20 권장)"
+        required: false
+        default: "0"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run coverage audit
+        env:
+          NAVER_AD_API_LICENSE: ${{ secrets.NAVER_AD_API_LICENSE }}
+          NAVER_AD_SECRET_KEY: ${{ secrets.NAVER_AD_SECRET_KEY }}
+          NAVER_AD_CUSTOMER_ID: ${{ secrets.NAVER_AD_CUSTOMER_ID }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+        run: python coverage_audit.py --limit ${{ github.event.inputs.limit }}
+
+      - name: Upload gaps CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-gaps
+          path: coverage_gaps.csv
