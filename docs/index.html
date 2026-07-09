@@ -145,7 +145,7 @@ tr.cvg td{background:var(--red-l)}
     <div class="brand">💡<span>오즈키즈</span></div>
     <button class="nav-item active" data-page="weekly">📈<span class="lbl">주간 검색수</span></button>
     <button class="nav-item" data-page="coverage">🎯<span class="lbl">채널 노출 현황</span></button>
-    <button class="nav-item" data-page="discovery">🔍<span class="lbl">키워드 발굴</span></button>
+    <button class="nav-item" data-page="discovery">🔍<span class="lbl">관리 키워드 추가</span></button>
     <button class="nav-item" data-page="trend">📊<span class="lbl">연간 트렌드</span></button>
     <button class="nav-item" data-page="shopping">🛒<span class="lbl">쇼핑검색 순위</span></button>
     <button class="nav-item" data-page="powerlink">🔗<span class="lbl">파워링크 순위</span></button>
@@ -1095,7 +1095,7 @@ async function renderDiscovery(){
   const shCand=[...new Set(S.rows.map(r=>r.keyword).filter(k=>k&&!dictSet.has(k)&&!CV_INFANT.test(k)&&!CV_NOTSOLD_TXT.test(k)))];
 
   body.innerHTML=`
-    <div class="page-head" style="margin-bottom:2px"><h1 style="font-size:1.3rem">🔍 키워드 발굴</h1>
+    <div class="page-head" style="margin-bottom:2px"><h1 style="font-size:1.3rem">🔍 관리 키워드 추가</h1>
       <div class="sub">광고 리포트엔 있는데 <b>키워드사전엔 없는</b> 키워드 — 우리 광고가 이미 노출된 미관리 키워드입니다. <b>[➕ 사전추가]</b> 하면 시드로 등록돼 다음 수집부터 매트릭스에 편입됩니다.</div></div>
     <div class="cv-cards" style="grid-template-columns:1fr 1fr">
       <div class="cv-stat"><div class="l">🔗 파워링크 사전밖</div><div class="v">${fmt(plCand.length)}<small> 개</small></div><div class="f" style="color:var(--muted)">입찰 중인데 미관리</div></div>
