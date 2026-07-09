@@ -1101,31 +1101,48 @@ async function renderDiscovery(){
     }catch(e){ btn.disabled=false; btn.textContent="실패 - 재시도"; }
   });
 
+  // 실시간 검색량 조회 (search_volume 엔드포인트, 청크 병렬) → {키워드: 월검색수}
+  const fetchVols=async(kws)=>{
+    const map={}, CH=50, chunks=[];
+    for(let i=0;i<kws.length;i+=CH) chunks.push(kws.slice(i,i+CH));
+    const res=await Promise.all(chunks.map(c=>api("search_volume",{kw:c.join(","),exact:"1"}).catch(()=>[])));
+    res.forEach(arr=>(arr||[]).forEach(r=>{ map[String(r.keyword).trim()]=(r.total!=null?r.total:(r.mobile||0)); }));
+    return map;
+  };
   const plEl=document.getElementById("dc-pl");
+  let plVolDone=false;
   const renderPl=q=>{
     let list=plCand.filter(c=>!q||c.kw.toLowerCase().includes(q));
+    list.sort((a,b)=>((b.vol==null?-1:b.vol)-(a.vol==null?-1:a.vol)) || ((a.rank==null?1e9:a.rank)-(b.rank==null?1e9:b.rank)));
     const CAP=300, shown=list.slice(0,CAP);
-    plEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개</div>
-      <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">키워드</th><th>파워링크 순위</th><th style="text-align:center">액션</th></tr></thead><tbody>
-      ${shown.map(c=>`<tr><td class="lcell">${c.kw}</td><td>${c.rank!=null?Math.round(c.rank)+'위':'-'}</td><td style="text-align:center">${addBtn(c.kw)}</td></tr>`).join("")}
-      </tbody></table></div>${list.length>CAP?`<div class="cap-note">상위 ${CAP}개 표시 — 검색으로 좁히세요.</div>`:""}`;
+    plEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개${plVolDone?" · 검색량순":" · <span style='color:var(--muted)'>검색량 불러오는 중…</span>"}</div>
+      <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">키워드</th><th>월 검색수</th><th>파워링크 순위</th><th style="text-align:center">액션</th></tr></thead><tbody>
+      ${shown.map(c=>`<tr><td class="lcell">${c.kw}</td><td>${c.vol!=null?fmt(c.vol):'…'}</td><td>${c.rank!=null?Math.round(c.rank)+'위':'-'}</td><td style="text-align:center">${addBtn(c.kw)}</td></tr>`).join("")}
+      </tbody></table></div>${list.length>CAP?`<div class="cap-note">상위 ${CAP}개 표시.</div>`:""}`;
     wireAdd(plEl);
   };
   renderPl("");
+  fetchVols(plCand.map(c=>c.kw)).then(m=>{ plCand.forEach(c=>{ if(m[c.kw]!=null) c.vol=m[c.kw]; }); plVolDone=true; renderPl(document.getElementById("dc-plsearch").value.trim().toLowerCase()); });
   (()=>{const si=document.getElementById("dc-plsearch");let t;si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>renderPl(si.value.trim().toLowerCase()),200);};})();
 
   const shEl=document.getElementById("dc-sh");
-  (()=>{const si=document.getElementById("dc-shsearch");let t;si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>{
+  (()=>{const si=document.getElementById("dc-shsearch");let t;si.oninput=()=>{clearTimeout(t);t=setTimeout(async()=>{
     const q=si.value.trim().toLowerCase();
     if(q.length<2){ shEl.innerHTML=`<div class="info">2글자 이상 입력하세요.</div>`; return; }
     const list=shCand.filter(k=>k.toLowerCase().includes(q));
-    const CAP=100, shown=list.slice(0,CAP);
-    shEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 일치</div>
-      <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">검색어</th><th style="text-align:center">액션</th></tr></thead><tbody>
-      ${shown.map(k=>`<tr><td class="lcell">${k}</td><td style="text-align:center">${addBtn(k)}</td></tr>`).join("")}
-      </tbody></table></div>${list.length>CAP?`<div class="cap-note">${fmt(list.length)}개 중 상위 ${CAP}개 — 더 구체적으로 검색하세요.</div>`:""}`;
-    wireAdd(shEl);
-  },250);};})();
+    const CAP=80, shown=list.slice(0,CAP);
+    const draw=(vm,loading)=>{
+      let arr=shown.map(k=>({k,vol:vm?vm[k]:null}));
+      if(vm) arr.sort((a,b)=>((b.vol==null?-1:b.vol)-(a.vol==null?-1:a.vol)));
+      shEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 일치${loading?" · <span style='color:var(--muted)'>검색량 불러오는 중…</span>":" · 검색량순"}</div>
+        <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">검색어</th><th>월 검색수</th><th style="text-align:center">액션</th></tr></thead><tbody>
+        ${arr.map(o=>`<tr><td class="lcell">${o.k}</td><td>${o.vol!=null?fmt(o.vol):'…'}</td><td style="text-align:center">${addBtn(o.k)}</td></tr>`).join("")}
+        </tbody></table></div>${list.length>CAP?`<div class="cap-note">${fmt(list.length)}개 일치 · 앞 ${CAP}개만 검색량 조회해 정렬 — 더 구체적으로 검색하면 정확해집니다.</div>`:""}`;
+      wireAdd(shEl);
+    };
+    draw(null,true);
+    try{ const m=await fetchVols(shown); draw(m,false); }catch(e){ draw(null,false); }
+  },300);};})();
 }
 
 /* ── 부트스트랩 ────────────────────────────────────────────── */
