@@ -145,6 +145,7 @@ tr.cvg td{background:var(--red-l)}
     <div class="brand">💡<span>오즈키즈</span></div>
     <button class="nav-item active" data-page="weekly">📈<span class="lbl">주간 검색수</span></button>
     <button class="nav-item" data-page="coverage">🎯<span class="lbl">채널 노출 현황</span></button>
+    <button class="nav-item" data-page="discovery">🔍<span class="lbl">키워드 발굴</span></button>
     <button class="nav-item" data-page="trend">📊<span class="lbl">연간 트렌드</span></button>
     <button class="nav-item" data-page="shopping">🛒<span class="lbl">쇼핑검색 순위</span></button>
     <button class="nav-item" data-page="powerlink">🔗<span class="lbl">파워링크 순위</span></button>
@@ -173,6 +174,7 @@ tr.cvg td{background:var(--red-l)}
     </section>
 
     <section id="page-coverage" hidden><div id="coverage-body"></div></section>
+    <section id="page-discovery" hidden><div id="discovery-body"></div></section>
     <section id="page-trend" hidden><div id="trend-body"></div></section>
     <section id="page-shopping" hidden><div id="shopping-body"></div></section>
     <section id="page-powerlink" hidden><div id="powerlink-body"></div></section>
@@ -394,11 +396,11 @@ document.addEventListener("click",()=>document.querySelectorAll(".ms-list").forE
 /* ── 네비게이션 ────────────────────────────────────────────── */
 const rendered=new Set(["weekly"]);
 const PAGE_RENDER={
-  coverage:renderCoverage,
+  coverage:renderCoverage, discovery:renderDiscovery,
   trend:renderTrend, shopping:()=>renderRank("shopping"), powerlink:()=>renderRank("powerlink"),
   blogcafe:renderBlogCafe, newkw:renderNewkw, manage:renderManage,
 };
-const VALID_PAGES=["weekly","coverage","trend","shopping","powerlink","blogcafe","newkw","manage"];
+const VALID_PAGES=["weekly","coverage","discovery","trend","shopping","powerlink","blogcafe","newkw","manage"];
 // 해시 라우팅: 탭마다 URL 다르게 (#trend, #shopping …) → 북마크·공유·뒤로가기 지원
 function navigate(pg){
   if(!VALID_PAGES.includes(pg)) pg="weekly";
@@ -931,7 +933,7 @@ async function renderManage(){
    PAGE — 채널 노출 현황 (키워드 × 채널 통합 매트릭스)
    ═══════════════════════════════════════════════════════════════ */
 const CV_FILTER={seasons:[],categories:[],onlyGap:false,hideBaby:true,hideJunior:true,search:""};
-const CV_INFANT=/신생아|백일|돌아기|돌복|돌옷|개월|베이비|영아|newborn/;  // 명백 영아 = 완전 제외
+const CV_INFANT=/신생아|백일|100일|돌아기|돌복|돌옷|개월|베이비|영아|newborn/;  // 명백 영아 = 완전 제외
 const CV_BABY=/아기/;                                                        // 경계 아기류 = 토글
 const CV_JUNIOR=/주니어|초등|청소년|junior/i;                                 // 주니어(3~7세 위) = 토글
 async function renderCoverage(){
@@ -1050,6 +1052,73 @@ async function renderCoverage(){
   styleJr();
   const si=document.getElementById("cv-search"); let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>{CV_FILTER.search=si.value.trim();render();},250);};
   render();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PAGE — 키워드 발굴 (광고 리포트 역추적: 사전 밖 미관리 키워드)
+   ═══════════════════════════════════════════════════════════════ */
+async function renderDiscovery(){
+  const body=document.getElementById("discovery-body"); body.innerHTML=loadingHTML;
+  if(!STATE.weekly.length){ body.innerHTML=`<div class="info">키워드사전 데이터가 없습니다.</div>`; return; }
+  const dictSet=new Set(STATE.weekly.map(r=>r.keyword));
+  let pl,sh;
+  try{ [pl,sh]=await Promise.all([api("rank",{type:"powerlink"}),api("rank",{type:"shopping"})]); }
+  catch(e){ body.innerHTML=`<div class="info">광고 리포트 로드 실패: ${e.message}</div>`; return; }
+  const P=parseRank(pl), S=parseRank(sh);
+  const plLast=P.weekCols[P.weekCols.length-1];
+  const plCand=P.rows.filter(r=>r.keyword&&!dictSet.has(r.keyword)&&!CV_INFANT.test(r.keyword))
+    .map(r=>({kw:r.keyword,rank:r.w[plLast]}))
+    .sort((a,b)=>{const x=a.rank==null?1e9:a.rank,y=b.rank==null?1e9:b.rank;return x-y;});
+  const shCand=[...new Set(S.rows.map(r=>r.keyword).filter(k=>k&&!dictSet.has(k)&&!CV_INFANT.test(k)))];
+
+  body.innerHTML=`
+    <div class="page-head" style="margin-bottom:2px"><h1 style="font-size:1.3rem">🔍 키워드 발굴</h1>
+      <div class="sub">광고 리포트엔 있는데 <b>키워드사전엔 없는</b> 키워드 — 우리 광고가 이미 노출된 미관리 키워드입니다. <b>[➕ 사전추가]</b> 하면 시드로 등록돼 다음 수집부터 매트릭스에 편입됩니다.</div></div>
+    <div class="cv-cards" style="grid-template-columns:1fr 1fr">
+      <div class="cv-stat"><div class="l">🔗 파워링크 사전밖</div><div class="v">${fmt(plCand.length)}<small> 개</small></div><div class="f" style="color:var(--muted)">입찰 중인데 미관리</div></div>
+      <div class="cv-stat"><div class="l">🛒 쇼핑 사전밖</div><div class="v">${fmt(shCand.length)}<small> 개</small></div><div class="f" style="color:var(--muted)">노출된 검색어 · 검색으로 탐색</div></div>
+    </div>
+    <div class="subhead">🔗 파워링크 역추적 <span style="font-size:.72rem;color:var(--muted);font-weight:500">— 입찰 중인데 사전에 없는 키워드 (순위 좋은 순)</span></div>
+    <input id="dc-plsearch" class="rank-search" placeholder="🔎 키워드 검색..." style="display:block;margin-bottom:8px">
+    <div id="dc-pl"></div>
+    <div class="subhead" style="margin-top:26px">🛒 쇼핑 역추적 <span style="font-size:.72rem;color:var(--muted);font-weight:500">— 쇼핑 광고에 노출된 검색어 (제품명으로 검색)</span></div>
+    <input id="dc-shsearch" class="rank-search" placeholder="🔎 제품명 입력 (예: 수영복, 원피스)..." style="display:block;margin-bottom:8px">
+    <div id="dc-sh"><div class="info">위에 제품명을 입력하면 사전에 없는 검색어가 나옵니다.</div></div>`;
+
+  const addBtn=kw=>`<button class="dl-btn dc-add" data-kw="${String(kw).replace(/"/g,'&quot;')}" style="padding:5px 11px;font-size:.76rem">➕ 사전추가</button>`;
+  const wireAdd=el=>el.querySelectorAll(".dc-add").forEach(btn=>btn.onclick=async()=>{
+    const kw=btn.dataset.kw; btn.disabled=true; btn.textContent="추가 중…";
+    try{ const r=await apiPost({action:"append_dict",keyword:kw,rep:kw,seed:true});
+      if(r&&r.exists){ btn.textContent="이미 있음"; btn.style.color="var(--muted)"; }
+      else { btn.textContent="✓ 추가됨"; btn.style.background="var(--green-l)"; btn.style.color="var(--green)"; btn.style.borderColor="var(--green)"; }
+    }catch(e){ btn.disabled=false; btn.textContent="실패 - 재시도"; }
+  });
+
+  const plEl=document.getElementById("dc-pl");
+  const renderPl=q=>{
+    let list=plCand.filter(c=>!q||c.kw.toLowerCase().includes(q));
+    const CAP=300, shown=list.slice(0,CAP);
+    plEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개</div>
+      <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">키워드</th><th>파워링크 순위</th><th style="text-align:center">액션</th></tr></thead><tbody>
+      ${shown.map(c=>`<tr><td class="lcell">${c.kw}</td><td>${c.rank!=null?Math.round(c.rank)+'위':'-'}</td><td style="text-align:center">${addBtn(c.kw)}</td></tr>`).join("")}
+      </tbody></table></div>${list.length>CAP?`<div class="cap-note">상위 ${CAP}개 표시 — 검색으로 좁히세요.</div>`:""}`;
+    wireAdd(plEl);
+  };
+  renderPl("");
+  (()=>{const si=document.getElementById("dc-plsearch");let t;si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>renderPl(si.value.trim().toLowerCase()),200);};})();
+
+  const shEl=document.getElementById("dc-sh");
+  (()=>{const si=document.getElementById("dc-shsearch");let t;si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>{
+    const q=si.value.trim().toLowerCase();
+    if(q.length<2){ shEl.innerHTML=`<div class="info">2글자 이상 입력하세요.</div>`; return; }
+    const list=shCand.filter(k=>k.toLowerCase().includes(q));
+    const CAP=100, shown=list.slice(0,CAP);
+    shEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 일치</div>
+      <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">검색어</th><th style="text-align:center">액션</th></tr></thead><tbody>
+      ${shown.map(k=>`<tr><td class="lcell">${k}</td><td style="text-align:center">${addBtn(k)}</td></tr>`).join("")}
+      </tbody></table></div>${list.length>CAP?`<div class="cap-note">${fmt(list.length)}개 중 상위 ${CAP}개 — 더 구체적으로 검색하세요.</div>`:""}`;
+    wireAdd(shEl);
+  },250);};})();
 }
 
 /* ── 부트스트랩 ────────────────────────────────────────────── */

@@ -102,6 +102,7 @@ var KWWEB = {
       switch (action) {
         case 'save_setting':      this.saveSetting(body.key, body.value); return this.json({ ok: true });
         case 'save_new_keywords': this.saveNewKeywords(body.rows || []);  return this.json({ ok: true, saved: (body.rows || []).length });
+        case 'append_dict':       return this.json(this.appendDict(body.keyword, body.rep, body.seed));
         case 'append_rank':       this.appendRankHistory(body.rows || [], body.week, S[body.rank_type] || S.shopping); return this.json({ ok: true, saved: (body.rows || []).length });
         case 'collect_rank': {     // 블로그/카페 순위 라이브 조회 + 저장 (한 번에)
           var ranks = body.kind === 'cafe' ? this.fetchCafeRank(body.kw || []) : this.fetchBlogRank(body.kw || []);
@@ -163,6 +164,37 @@ var KWWEB = {
       return [r['날짜'] || '', r['제품명'] || '', r['카테고리'] || '', r['타겟'] || '', r['키워드'] || '', r['출처'] || '', r['월간검색수'] || ''];
     });
     sh.getRange(sh.getLastRow() + 1, 1, out.length, header.length).setValues(out);
+  },
+
+  // 발굴 → 사전추가: 키워드사전에 새 행 append (대표키워드 + 시드 체크박스). 중복이면 스킵.
+  appendDict: function (keyword, rep, seed) {
+    keyword = String(keyword || '').trim();
+    if (!keyword) throw 'keyword required';
+    var sh = this.sheet(this.CFG.SHEET.dict);
+    if (!sh) throw '키워드사전 탭 없음';
+    var lastCol = sh.getLastColumn();
+    var H = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    var iKw = H.indexOf('키워드'), iRep = H.indexOf('대표키워드'), iSeed = H.indexOf('시드');
+    if (iKw < 0) throw '키워드 컬럼 없음';
+    var lastRow = sh.getLastRow();
+    if (lastRow >= 2) {
+      var col = sh.getRange(2, iKw + 1, lastRow - 1, 1).getValues();
+      for (var i = 0; i < col.length; i++) {
+        if (String(col[i][0]).trim() === keyword) return { ok: false, exists: true, keyword: keyword };
+      }
+    }
+    var row = [];
+    for (var c = 0; c < lastCol; c++) row.push('');
+    row[iKw] = keyword;
+    if (iRep >= 0) row[iRep] = String(rep || keyword).trim();
+    if (iSeed >= 0) row[iSeed] = seed ? true : false;
+    sh.appendRow(row);
+    if (iSeed >= 0) {  // 시드 셀 체크박스 유지 (append 후 값 재설정)
+      var sc = sh.getRange(sh.getLastRow(), iSeed + 1);
+      sc.insertCheckboxes();
+      sc.setValue(seed ? true : false);
+    }
+    return { ok: true, keyword: keyword };
   },
 
   appendRankHistory: function (rows, week, sheetName) {
