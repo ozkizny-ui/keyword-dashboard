@@ -136,6 +136,12 @@ tbody tr:hover{background:var(--surface2)}
 .cov-d{display:inline-flex;gap:2px} .cov-d i{width:8px;height:8px;border-radius:2px;display:inline-block;background:var(--surface2)}
 .cov-d i.on{background:var(--green)} .cov-d i.mid{background:var(--amber)}
 tr.cvg td{background:var(--red-l)}
+/* ── 사이드바 하위 메뉴 (채널 노출 현황) ── */
+.nav-parent .chev{margin-left:auto;font-size:.6rem;color:var(--muted)}
+.nav-subs{display:none;flex-direction:column;gap:4px;margin:2px 0}
+.nav-subs.open{display:flex}
+.nav-sub{padding-left:30px;font-size:.82rem}
+@media(max-width:900px){.nav-sub{padding-left:11px}.nav-parent .chev{display:none}}
 </style>
 </head>
 <body>
@@ -144,12 +150,14 @@ tr.cvg td{background:var(--red-l)}
   <nav class="sidebar">
     <div class="brand">💡<span>오즈키즈</span></div>
     <button class="nav-item active" data-page="weekly">📈<span class="lbl">주간 검색수</span></button>
-    <button class="nav-item" data-page="coverage">🎯<span class="lbl">채널 노출 현황</span></button>
+    <button class="nav-item nav-parent" data-page="coverage">🎯<span class="lbl">채널 노출 현황</span><span class="chev">▾</span></button>
+    <div class="nav-subs" id="nav-subs">
+      <button class="nav-item nav-sub" data-page="shopping">🛒<span class="lbl">쇼핑검색 순위</span></button>
+      <button class="nav-item nav-sub" data-page="powerlink">🔗<span class="lbl">파워링크 순위</span></button>
+      <button class="nav-item nav-sub" data-page="blogcafe">📝<span class="lbl">블로그/카페 순위</span></button>
+    </div>
     <button class="nav-item" data-page="discovery">🔍<span class="lbl">관리 키워드 추가</span></button>
     <button class="nav-item" data-page="trend">📊<span class="lbl">연간 트렌드</span></button>
-    <button class="nav-item" data-page="shopping">🛒<span class="lbl">쇼핑검색 순위</span></button>
-    <button class="nav-item" data-page="powerlink">🔗<span class="lbl">파워링크 순위</span></button>
-    <button class="nav-item" data-page="blogcafe">📝<span class="lbl">블로그/카페 순위</span></button>
     <button class="nav-item" data-page="newkw">🆕<span class="lbl">신규키워드 개발</span></button>
     <button class="nav-item" data-page="manage">⚙️<span class="lbl">데이터 관리</span></button>
     <div class="sidebar-foot"><span class="dot"></span><span id="connState">로딩 중…</span></div>
@@ -405,6 +413,7 @@ const VALID_PAGES=["weekly","coverage","discovery","trend","shopping","powerlink
 function navigate(pg){
   if(!VALID_PAGES.includes(pg)) pg="weekly";
   document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active", b.dataset.page===pg));
+  const subs=document.getElementById("nav-subs"); if(subs) subs.classList.toggle("open", ["coverage","shopping","powerlink","blogcafe"].includes(pg));
   document.querySelectorAll("main section").forEach(s=>s.hidden = s.id!==`page-${pg}`);
   if(!rendered.has(pg)){ rendered.add(pg); if(PAGE_RENDER[pg]){ try{ PAGE_RENDER[pg](); }catch(e){ console.error(e); } } }
 }
