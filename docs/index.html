@@ -930,9 +930,10 @@ async function renderManage(){
 /* ═══════════════════════════════════════════════════════════════
    PAGE — 채널 노출 현황 (키워드 × 채널 통합 매트릭스)
    ═══════════════════════════════════════════════════════════════ */
-const CV_FILTER={seasons:[],categories:[],onlyGap:false,hideBaby:true,search:""};
+const CV_FILTER={seasons:[],categories:[],onlyGap:false,hideBaby:true,hideJunior:true,search:""};
 const CV_INFANT=/신생아|백일|돌아기|돌복|돌옷|개월|베이비|영아|newborn/;  // 명백 영아 = 완전 제외
 const CV_BABY=/아기/;                                                        // 경계 아기류 = 토글
+const CV_JUNIOR=/주니어|초등|청소년|junior/i;                                 // 주니어(3~7세 위) = 토글
 async function renderCoverage(){
   const body=document.getElementById("coverage-body"); body.innerHTML=loadingHTML;
   if(!STATE.weekly.length){ body.innerHTML=`<div class="info">키워드사전 데이터가 없습니다.</div>`; return; }
@@ -958,8 +959,8 @@ async function renderCoverage(){
     const adPl=pR!=null, adSh=sR!=null;
     const gap=vol>=CUT && !adPl && !adSh;
     let cov=0; if(adPl)cov++; if(adSh)cov++; if(is1p(bR))cov++; if(is1p(cR))cov++;
-    const infant=CV_INFANT.test(kw), baby=!infant&&CV_BABY.test(kw);
-    return {kw,vol,season:m.season||"",category:m.category||"",pR,sR,bR,cR,adPl,adSh,gap,cov,infant,baby};
+    const infant=CV_INFANT.test(kw), junior=!infant&&CV_JUNIOR.test(kw), baby=!infant&&!junior&&CV_BABY.test(kw);
+    return {kw,vol,season:m.season||"",category:m.category||"",pR,sR,bR,cR,adPl,adSh,gap,cov,infant,junior,baby};
   }).filter(x=>x.vol>=CUT);
   const nInfant=allRaw.filter(x=>x.infant).length;   // 명백 영아 = 완전 제외(리스트/집계 미포함)
   const all=allRaw.filter(x=>!x.infant);
@@ -968,13 +969,15 @@ async function renderCoverage(){
     <div class="page-head" style="margin-bottom:2px"><h1 style="font-size:1.3rem">🎯 채널 노출 현황</h1>
       <div class="sub">키워드 × 채널 노출 매트릭스 · 월검색수 <b>${fmt(CUT)}+</b>(최근4주 최대) · 광고 ${P2.wk} · 블로그/카페 ${B2.wk} · 🍼 명백 영아 <b>${fmt(nInfant)}개</b> 자동 제외</div></div>
     <div id="cv-cards"></div>
-    <div class="filters" style="grid-template-columns:1fr 1fr 1.5fr 1fr">
+    <div class="filters" style="grid-template-columns:1fr 1fr 1.4fr">
       <div class="filter"><label>계절</label><div class="ms-pop" id="cv-fs"></div></div>
       <div class="filter"><label>카테고리</label><div class="ms-pop" id="cv-fc"></div></div>
-      <div class="filter"><label>&nbsp;</label><div style="display:flex;gap:6px">
-        <button id="cv-gap" class="dl-btn" style="flex:1">⚠️ 누락만</button>
-        <button id="cv-baby" class="dl-btn" style="flex:1">🍼 아기 숨김</button></div></div>
       <div class="filter"><label>🔎 키워드 검색</label><input id="cv-search" placeholder="키워드명..."></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button id="cv-gap" class="dl-btn">⚠️ 누락만</button>
+      <button id="cv-baby" class="dl-btn">🍼 아기 숨김</button>
+      <button id="cv-junior" class="dl-btn">🧒 주니어 숨김</button>
     </div>
     <div style="font-size:.72rem;color:var(--muted);margin:10px 2px 0">
       광고: <span class="pl pl-g" style="min-width:auto">N위</span> 노출중 · <span class="pl pl-c st" style="min-width:auto">누락</span> 미등록 &nbsp;|&nbsp;
@@ -994,12 +997,15 @@ async function renderCoverage(){
     return `<span class="cov-d">${d.map(c=>`<i class="${c}"></i>`).join("")}</span> <span style="font-size:.7rem;color:var(--muted);font-weight:700">${x.cov}/4</span>`; };
   const render=()=>{
     // 명백 영아는 all에서 이미 제외됨. 아기류는 토글로 working 결정 → 카드도 working 기준.
-    const working = CV_FILTER.hideBaby ? all.filter(x=>!x.baby) : all;
-    const nBaby=all.filter(x=>x.baby).length;
+    let working = all;
+    if(CV_FILTER.hideBaby) working=working.filter(x=>!x.baby);
+    if(CV_FILTER.hideJunior) working=working.filter(x=>!x.junior);
+    const nBaby=all.filter(x=>x.baby).length, nJunior=all.filter(x=>x.junior).length;
     const nT=working.length, nA=working.filter(x=>x.adPl||x.adSh).length,
           n1=working.filter(x=>is1p(x.bR)||is1p(x.cR)).length, nG=working.filter(x=>x.gap).length;
+    const hid=[]; if(CV_FILTER.hideBaby)hid.push(`아기 ${fmt(nBaby)}`); if(CV_FILTER.hideJunior)hid.push(`주니어 ${fmt(nJunior)}`);
     document.getElementById("cv-cards").innerHTML=`<div class="cv-cards">
-      <div class="cv-stat"><div class="l">🎯 점검 대상</div><div class="v">${fmt(nT)}<small> 개</small></div><div class="f" style="color:var(--muted)">월 ${fmt(CUT)}+ · 영아 제외${CV_FILTER.hideBaby?` · 아기 ${fmt(nBaby)} 숨김`:` · 아기 ${fmt(nBaby)} 포함`}</div></div>
+      <div class="cv-stat"><div class="l">🎯 점검 대상</div><div class="v">${fmt(nT)}<small> 개</small></div><div class="f" style="color:var(--muted)">월 ${fmt(CUT)}+ · 영아 제외${hid.length?` · ${hid.join("·")} 숨김`:''}</div></div>
       <div class="cv-stat"><div class="l">📣 광고 노출 중</div><div class="v">${fmt(nA)}<small> 개</small></div><div class="f" style="color:var(--green)">파워링크·쇼핑 1곳 이상</div></div>
       <div class="cv-stat"><div class="l">📝 블로그·카페 1p</div><div class="v">${fmt(n1)}<small> 개</small></div><div class="f" style="color:var(--amber)">1~10위 노출</div></div>
       <div class="cv-stat alert"><div class="l">⚠️ 노출 누락 경보</div><div class="v">${fmt(nG)}<small> 개</small></div><div class="f">검색 많은데 광고 없음</div></div>
@@ -1037,6 +1043,11 @@ async function renderCoverage(){
     babyBtn.textContent=CV_FILTER.hideBaby?"🍼 아기 숨김":"🍼 아기 표시"; };
   babyBtn.onclick=()=>{ CV_FILTER.hideBaby=!CV_FILTER.hideBaby; styleBaby(); render(); };
   styleBaby();
+  const jrBtn=document.getElementById("cv-junior");
+  const styleJr=()=>{ jrBtn.style.background=CV_FILTER.hideJunior?"var(--accent-l)":""; jrBtn.style.color=CV_FILTER.hideJunior?"var(--accent-d)":"";
+    jrBtn.textContent=CV_FILTER.hideJunior?"🧒 주니어 숨김":"🧒 주니어 표시"; };
+  jrBtn.onclick=()=>{ CV_FILTER.hideJunior=!CV_FILTER.hideJunior; styleJr(); render(); };
+  styleJr();
   const si=document.getElementById("cv-search"); let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>{CV_FILTER.search=si.value.trim();render();},250);};
   render();
 }
