@@ -991,7 +991,6 @@ async function renderCoverage(){
   body.innerHTML=`
     <div class="page-head" style="margin-bottom:2px"><h1 style="font-size:1.3rem">🎯 채널 노출 현황</h1>
       <div class="sub">키워드 × 채널 노출 매트릭스 · 월검색수 <b>${fmt(CUT)}+</b>(최근4주 최대) · 광고 ${P2.wk} · 블로그/카페 ${B2.wk} · 자동 제외: 🍼영아 <b>${fmt(nInfant)}</b> · 🚫비취급 <b>${fmt(nNotSold)}</b></div></div>
-    <div id="cv-cards"></div>
     <div class="filters" style="grid-template-columns:1fr 1fr 1.4fr">
       <div class="filter"><label>계절</label><div class="ms-pop" id="cv-fs"></div></div>
       <div class="filter"><label>카테고리</label><div class="ms-pop" id="cv-fc"></div></div>
@@ -1020,20 +1019,10 @@ async function renderCoverage(){
   const covCell=x=>{ const d=[x.adPl?'on':'',x.adSh?'on':'',is1p(x.bR)?'on':(isMid(x.bR)?'mid':''),is1p(x.cR)?'on':(isMid(x.cR)?'mid':'')];
     return `<span class="cov-d">${d.map(c=>`<i class="${c}"></i>`).join("")}</span> <span style="font-size:.7rem;color:var(--muted);font-weight:700">${x.cov}/4</span>`; };
   const render=()=>{
-    // 명백 영아는 all에서 이미 제외됨. 아기류는 토글로 working 결정 → 카드도 working 기준.
+    // 명백 영아는 all에서 제외됨. 아기류는 토글로 working 결정.
     let working = all;
     if(CV_FILTER.hideBaby) working=working.filter(x=>!x.baby);
     if(CV_FILTER.hideJunior) working=working.filter(x=>!x.junior);
-    const nBaby=all.filter(x=>x.baby).length, nJunior=all.filter(x=>x.junior).length;
-    const nT=working.length, nA=working.filter(x=>x.adPl||x.adSh).length,
-          n1=working.filter(x=>is1p(x.bR)||is1p(x.cR)).length, nG=working.filter(x=>x.gap).length;
-    const hid=[]; if(CV_FILTER.hideBaby)hid.push(`아기 ${fmt(nBaby)}`); if(CV_FILTER.hideJunior)hid.push(`주니어 ${fmt(nJunior)}`);
-    document.getElementById("cv-cards").innerHTML=`<div class="cv-cards">
-      <div class="cv-stat"><div class="l">🎯 점검 대상</div><div class="v">${fmt(nT)}<small> 개</small></div><div class="f" style="color:var(--muted)">월 ${fmt(CUT)}+ · 영아 제외${hid.length?` · ${hid.join("·")} 숨김`:''}</div></div>
-      <div class="cv-stat"><div class="l">📣 광고 노출 중</div><div class="v">${fmt(nA)}<small> 개</small></div><div class="f" style="color:var(--green)">파워링크·쇼핑 1곳 이상</div></div>
-      <div class="cv-stat"><div class="l">📝 블로그·카페 1p</div><div class="v">${fmt(n1)}<small> 개</small></div><div class="f" style="color:var(--amber)">1~10위 노출</div></div>
-      <div class="cv-stat alert"><div class="l">⚠️ 노출 누락 경보</div><div class="v">${fmt(nG)}<small> 개</small></div><div class="f">검색 많은데 광고 없음</div></div>
-    </div>`;
     const q=CV_FILTER.search.toLowerCase();
     let list=working.filter(x=>{
       if(CV_FILTER.seasons.length&&!CV_FILTER.seasons.some(s=>(x.season||"").includes(s)))return false;
