@@ -1090,7 +1090,13 @@ async function renderDiscovery(){
     <div id="dc-pl"></div>
     <div class="subhead" style="margin-top:26px">🛒 쇼핑 역추적 <span style="font-size:.72rem;color:var(--muted);font-weight:500">— 쇼핑 광고에 노출된 검색어 (제품명으로 검색)</span></div>
     <input id="dc-shsearch" class="rank-search" placeholder="🔎 제품명 입력 (예: 수영복, 원피스)..." style="display:block;margin-bottom:8px">
-    <div id="dc-sh"><div class="info">위에 제품명을 입력하면 사전에 없는 검색어가 나옵니다.</div></div>`;
+    <div id="dc-sh"><div class="info">위에 제품명을 입력하면 사전에 없는 검색어가 나옵니다.</div></div>
+    <div class="subhead" style="margin-top:26px">🔗 연관 키워드 확장 <span style="font-size:.72rem;color:var(--muted);font-weight:500">— 제품명 시드로 네이버 연관 키워드 발굴 (사전밖·월500+)</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <input id="dc-relseed" class="rank-search" placeholder="제품명 입력 (쉼표로 여러 개: 원피스, 래쉬가드)" style="flex:1;min-width:240px;margin:0">
+      <button id="dc-relgo" class="dl-btn primary">🔍 연관 키워드 찾기</button>
+    </div>
+    <div id="dc-rel"><div class="info">제품명을 입력하고 [연관 키워드 찾기]를 누르세요. (키워드당 5~10초)</div></div>`;
 
   const addBtn=kw=>`<button class="dl-btn dc-add" data-kw="${String(kw).replace(/"/g,'&quot;')}" style="padding:5px 11px;font-size:.76rem">➕ 사전추가</button>`;
   const wireAdd=el=>el.querySelectorAll(".dc-add").forEach(btn=>btn.onclick=async()=>{
@@ -1112,12 +1118,13 @@ async function renderDiscovery(){
   const plEl=document.getElementById("dc-pl");
   let plVolDone=false;
   const renderPl=q=>{
-    let list=plCand.filter(c=>!q||c.kw.toLowerCase().includes(q));
-    list.sort((a,b)=>((b.vol==null?-1:b.vol)-(a.vol==null?-1:a.vol)) || ((a.rank==null?1e9:a.rank)-(b.rank==null?1e9:b.rank)));
+    if(!plVolDone){ plEl.innerHTML=`<div class="loading"><div class="spinner"></div>검색량 불러오는 중… (월 500+ 만 추천)</div>`; return; }
+    let list=plCand.filter(c=>(c.vol||0)>=500 && (!q||c.kw.toLowerCase().includes(q)));
+    list.sort((a,b)=>(b.vol||0)-(a.vol||0));
     const CAP=300, shown=list.slice(0,CAP);
-    plEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개${plVolDone?" · 검색량순":" · <span style='color:var(--muted)'>검색량 불러오는 중…</span>"}</div>
+    plEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 (월 500+)</div>
       <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">키워드</th><th>월 검색수</th><th>파워링크 순위</th><th style="text-align:center">액션</th></tr></thead><tbody>
-      ${shown.map(c=>`<tr><td class="lcell">${c.kw}</td><td>${c.vol!=null?fmt(c.vol):'…'}</td><td>${c.rank!=null?Math.round(c.rank)+'위':'-'}</td><td style="text-align:center">${addBtn(c.kw)}</td></tr>`).join("")}
+      ${shown.map(c=>`<tr><td class="lcell">${c.kw}</td><td>${fmt(c.vol)}</td><td>${c.rank!=null?Math.round(c.rank)+'위':'-'}</td><td style="text-align:center">${addBtn(c.kw)}</td></tr>`).join("")}
       </tbody></table></div>${list.length>CAP?`<div class="cap-note">상위 ${CAP}개 표시.</div>`:""}`;
     wireAdd(plEl);
   };
@@ -1132,17 +1139,45 @@ async function renderDiscovery(){
     const list=shCand.filter(k=>k.toLowerCase().includes(q));
     const CAP=80, shown=list.slice(0,CAP);
     const draw=(vm,loading)=>{
-      let arr=shown.map(k=>({k,vol:vm?vm[k]:null}));
-      if(vm) arr.sort((a,b)=>((b.vol==null?-1:b.vol)-(a.vol==null?-1:a.vol)));
-      shEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 일치${loading?" · <span style='color:var(--muted)'>검색량 불러오는 중…</span>":" · 검색량순"}</div>
+      let arr=shown.map(k=>({k,vol:vm?(vm[k]||0):null}));
+      if(vm){ arr=arr.filter(o=>o.vol>=500).sort((a,b)=>b.vol-a.vol); }
+      if(vm && !arr.length){ shEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 일치 · 월500+ 0개</div><div class="info">사전밖 후보가 모두 월 500 미만이에요 (검색량 큰 건 이미 사전에 관리 중). 🔗파워링크·연관확장을 활용하세요.</div>`; wireAdd(shEl); return; }
+      shEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 일치${loading?" · <span style='color:var(--muted)'>검색량 불러오는 중…</span>":` · 월500+ <b>${fmt(arr.length)}</b>개`}</div>
         <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">검색어</th><th>월 검색수</th><th style="text-align:center">액션</th></tr></thead><tbody>
         ${arr.map(o=>`<tr><td class="lcell">${o.k}</td><td>${o.vol!=null?fmt(o.vol):'…'}</td><td style="text-align:center">${addBtn(o.k)}</td></tr>`).join("")}
-        </tbody></table></div>${list.length>CAP?`<div class="cap-note">${fmt(list.length)}개 일치 · 앞 ${CAP}개만 검색량 조회해 정렬 — 더 구체적으로 검색하면 정확해집니다.</div>`:""}`;
+        </tbody></table></div>${list.length>CAP?`<div class="cap-note">${fmt(list.length)}개 일치 · 앞 ${CAP}개 조회 후 월500+만 표시 — 구체적으로 검색하면 정확해집니다.</div>`:""}`;
       wireAdd(shEl);
     };
     draw(null,true);
     try{ const m=await fetchVols(shown); draw(m,false); }catch(e){ draw(null,false); }
   },300);};})();
+
+  // ② 연관 키워드 확장 (related_kw 엔진 재사용 — 사전밖·월500+만)
+  const relEl=document.getElementById("dc-rel"), relGo=document.getElementById("dc-relgo"), relSeed=document.getElementById("dc-relseed");
+  relGo.onclick=async()=>{
+    const seeds=relSeed.value.split(/[,\n]+/).map(s=>s.trim()).filter(Boolean);
+    if(!seeds.length){ relEl.innerHTML=`<div class="info">제품명을 입력하세요.</div>`; return; }
+    relEl.innerHTML=loadingHTML; relGo.disabled=true;
+    try{
+      const m={};
+      for(const sd of seeds){
+        const r=await api("related_kw",{seed:sd});
+        (r&&r.results||[]).forEach(x=>{
+          const k=String(x.keyword||"").trim(), v=x['월간검색수']||0;
+          if(!k||dictSet.has(k)||CV_INFANT.test(k)||CV_NOTSOLD_TXT.test(k)||v<500) return;
+          if(m[k]==null||v>m[k]) m[k]=v;
+        });
+      }
+      relGo.disabled=false;
+      const list=Object.keys(m).map(k=>({k,v:m[k]})).sort((a,b)=>b.v-a.v);
+      if(!list.length){ relEl.innerHTML=`<div class="info">사전에 없는 월 500+ 연관 키워드를 못 찾았어요. (다른 제품명으로 시도)</div>`; return; }
+      relEl.innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 (사전밖·월500+)</div>
+        <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">연관 키워드</th><th>월 검색수</th><th style="text-align:center">액션</th></tr></thead><tbody>
+        ${list.slice(0,200).map(o=>`<tr><td class="lcell">${o.k}</td><td>${fmt(o.v)}</td><td style="text-align:center">${addBtn(o.k)}</td></tr>`).join("")}
+        </tbody></table></div>${list.length>200?`<div class="cap-note">상위 200개 표시.</div>`:""}`;
+      wireAdd(relEl);
+    }catch(e){ relGo.disabled=false; relEl.innerHTML=`<div class="info">조회 실패: ${e.message} (네이버 키 설정 확인)</div>`; }
+  };
 }
 
 /* ── 부트스트랩 ────────────────────────────────────────────── */
