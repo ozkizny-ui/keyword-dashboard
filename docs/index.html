@@ -934,8 +934,13 @@ async function renderManage(){
    ═══════════════════════════════════════════════════════════════ */
 const CV_FILTER={seasons:[],categories:[],onlyGap:false,hideBaby:true,hideJunior:true,search:""};
 const CV_INFANT=/신생아|백일|100일|돌아기|돌복|돌옷|개월|베이비|영아|newborn/;  // 명백 영아 = 완전 제외
-const CV_BABY=/아기/;                                                        // 경계 아기류 = 토글
+const CV_BABY=/아기|애기/;                                                    // 경계 아기류 = 토글 (애기 포함)
 const CV_JUNIOR=/주니어|초등|청소년|junior/i;                                 // 주니어(3~7세 위) = 토글
+// 우리 회사가 안 파는 제품 = 완전 제외 (카탈로그 대조 + 대표님 확인)
+const CV_NOTSOLD_RE=/성인|여성|남성/;   // 성인·여성·남성 타깃
+const CV_NOTSOLD_CATS=new Set(["정장","낮잠이불","무릎담요","낚시장화","애견용품","인테리어조명","답례품","배냇저고리","문구세트","아동시계"]);
+function cvNotSold(cat){ cat=String(cat||""); return CV_NOTSOLD_RE.test(cat)||CV_NOTSOLD_CATS.has(cat); }
+const CV_NOTSOLD_TXT=/성인|여성|남성|정장|낮잠이불|무릎담요|낚시|애견|인테리어조명|답례품|배냇저고리|문구세트|아동시계/;  // 발굴 텍스트 제외
 async function renderCoverage(){
   const body=document.getElementById("coverage-body"); body.innerHTML=loadingHTML;
   if(!STATE.weekly.length){ body.innerHTML=`<div class="info">키워드사전 데이터가 없습니다.</div>`; return; }
@@ -961,15 +966,17 @@ async function renderCoverage(){
     const adPl=pR!=null, adSh=sR!=null;
     const gap=vol>=CUT && !adPl && !adSh;
     let cov=0; if(adPl)cov++; if(adSh)cov++; if(is1p(bR))cov++; if(is1p(cR))cov++;
+    const notSold=cvNotSold(m.category);
     const infant=CV_INFANT.test(kw), junior=!infant&&CV_JUNIOR.test(kw), baby=!infant&&!junior&&CV_BABY.test(kw);
-    return {kw,vol,season:m.season||"",category:m.category||"",pR,sR,bR,cR,adPl,adSh,gap,cov,infant,junior,baby};
+    return {kw,vol,season:m.season||"",category:m.category||"",pR,sR,bR,cR,adPl,adSh,gap,cov,infant,junior,baby,notSold};
   }).filter(x=>x.vol>=CUT);
-  const nInfant=allRaw.filter(x=>x.infant).length;   // 명백 영아 = 완전 제외(리스트/집계 미포함)
-  const all=allRaw.filter(x=>!x.infant);
+  const nInfant=allRaw.filter(x=>x.infant).length;                       // 명백 영아
+  const nNotSold=allRaw.filter(x=>!x.infant&&x.notSold).length;          // 비취급 제품(성인/여성·정장 등)
+  const all=allRaw.filter(x=>!x.infant&&!x.notSold);                     // 리스트/집계 기준
 
   body.innerHTML=`
     <div class="page-head" style="margin-bottom:2px"><h1 style="font-size:1.3rem">🎯 채널 노출 현황</h1>
-      <div class="sub">키워드 × 채널 노출 매트릭스 · 월검색수 <b>${fmt(CUT)}+</b>(최근4주 최대) · 광고 ${P2.wk} · 블로그/카페 ${B2.wk} · 🍼 명백 영아 <b>${fmt(nInfant)}개</b> 자동 제외</div></div>
+      <div class="sub">키워드 × 채널 노출 매트릭스 · 월검색수 <b>${fmt(CUT)}+</b>(최근4주 최대) · 광고 ${P2.wk} · 블로그/카페 ${B2.wk} · 자동 제외: 🍼영아 <b>${fmt(nInfant)}</b> · 🚫비취급 <b>${fmt(nNotSold)}</b></div></div>
     <div id="cv-cards"></div>
     <div class="filters" style="grid-template-columns:1fr 1fr 1.4fr">
       <div class="filter"><label>계절</label><div class="ms-pop" id="cv-fs"></div></div>
@@ -1066,10 +1073,10 @@ async function renderDiscovery(){
   catch(e){ body.innerHTML=`<div class="info">광고 리포트 로드 실패: ${e.message}</div>`; return; }
   const P=parseRank(pl), S=parseRank(sh);
   const plLast=P.weekCols[P.weekCols.length-1];
-  const plCand=P.rows.filter(r=>r.keyword&&!dictSet.has(r.keyword)&&!CV_INFANT.test(r.keyword))
+  const plCand=P.rows.filter(r=>r.keyword&&!dictSet.has(r.keyword)&&!CV_INFANT.test(r.keyword)&&!CV_NOTSOLD_TXT.test(r.keyword))
     .map(r=>({kw:r.keyword,rank:r.w[plLast]}))
     .sort((a,b)=>{const x=a.rank==null?1e9:a.rank,y=b.rank==null?1e9:b.rank;return x-y;});
-  const shCand=[...new Set(S.rows.map(r=>r.keyword).filter(k=>k&&!dictSet.has(k)&&!CV_INFANT.test(k)))];
+  const shCand=[...new Set(S.rows.map(r=>r.keyword).filter(k=>k&&!dictSet.has(k)&&!CV_INFANT.test(k)&&!CV_NOTSOLD_TXT.test(k)))];
 
   body.innerHTML=`
     <div class="page-head" style="margin-bottom:2px"><h1 style="font-size:1.3rem">🔍 키워드 발굴</h1>
