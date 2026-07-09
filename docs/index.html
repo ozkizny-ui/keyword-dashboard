@@ -1051,7 +1051,7 @@ async function renderCoverage(){
       return `<span class="${d>0?'up':'down'}">${d>0?'▲':'▼'}${fmt(Math.abs(d))}<span style="font-size:.68rem">${rate}</span></span>`; };
     document.getElementById("cv-table").innerHTML=`<div class="metric" style="margin-top:14px"><b>${fmt(list.length)}</b>개 키워드${CV_FILTER.gapMode==='only'?' · ⚠️누락만':CV_FILTER.gapMode==='exclude'?' · ✅누락 제외':' · 검색수순'}</div>
       <div class="tbl-wrap scroll-box"><table><thead><tr>
-        <th class="lcell">키워드</th><th>이번주</th><th>지난주</th><th>증감</th><th>파워링크</th><th>쇼핑</th><th>블로그</th><th>카페</th><th>커버리지</th></tr></thead><tbody>
+        <th class="lcell">키워드</th><th>이번주</th><th>지난주</th><th>증감</th><th style="text-align:center">파워링크</th><th style="text-align:center">쇼핑</th><th style="text-align:center">블로그</th><th style="text-align:center">카페</th><th style="text-align:center">커버리지</th></tr></thead><tbody>
         ${shown.map(x=>`<tr class="${x.gap?'cvg':''}">
           <td class="lcell">${x.kw}<div style="font-size:.66rem;color:var(--muted);font-weight:400">${[x.season,x.category].filter(Boolean).join(" · ")}</div></td>
           <td style="font-weight:700">${fmt(x.wkNow)}</td>
