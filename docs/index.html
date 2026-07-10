@@ -1049,8 +1049,8 @@ async function renderCoverage(){
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
       <button id="cv-gap" class="dl-btn">⚠️ 누락만</button>
       <button id="cv-nogap" class="dl-btn">✅ 누락 제외</button>
-      <button id="cv-baby" class="dl-btn">🍼 아기 숨김</button>
-      <button id="cv-junior" class="dl-btn">🧒 주니어 숨김</button>
+      <button id="cv-baby" class="dl-btn">🍼 아기 표시</button>
+      <button id="cv-junior" class="dl-btn">🧒 주니어 표시</button>
     </div>
     <div style="font-size:.72rem;color:var(--muted);margin:10px 2px 0">
       광고: <span class="pl pl-g" style="min-width:auto">N위</span> 노출중 · <span class="pl pl-c st" style="min-width:auto">누락</span> 미등록 &nbsp;|&nbsp;
@@ -1115,13 +1115,13 @@ async function renderCoverage(){
   nogapBtn.onclick=()=>{ CV_FILTER.gapMode=CV_FILTER.gapMode==='exclude'?'all':'exclude'; styleGaps(); sr(); };
   styleGaps();
   const babyBtn=document.getElementById("cv-baby");
-  const styleBaby=()=>{ babyBtn.style.background=CV_FILTER.hideBaby?"var(--accent-l)":""; babyBtn.style.color=CV_FILTER.hideBaby?"var(--accent-d)":"";
-    babyBtn.textContent=CV_FILTER.hideBaby?"🍼 아기 숨김":"🍼 아기 표시"; };
+  const styleBaby=()=>{ const on=!CV_FILTER.hideBaby;  // on = 아기 표시 중(강조)
+    babyBtn.style.background=on?"var(--accent-l)":""; babyBtn.style.color=on?"var(--accent-d)":""; babyBtn.textContent="🍼 아기 표시"; };
   babyBtn.onclick=()=>{ CV_FILTER.hideBaby=!CV_FILTER.hideBaby; styleBaby(); sr(); };
   styleBaby();
   const jrBtn=document.getElementById("cv-junior");
-  const styleJr=()=>{ jrBtn.style.background=CV_FILTER.hideJunior?"var(--accent-l)":""; jrBtn.style.color=CV_FILTER.hideJunior?"var(--accent-d)":"";
-    jrBtn.textContent=CV_FILTER.hideJunior?"🧒 주니어 숨김":"🧒 주니어 표시"; };
+  const styleJr=()=>{ const on=!CV_FILTER.hideJunior;
+    jrBtn.style.background=on?"var(--accent-l)":""; jrBtn.style.color=on?"var(--accent-d)":""; jrBtn.textContent="🧒 주니어 표시"; };
   jrBtn.onclick=()=>{ CV_FILTER.hideJunior=!CV_FILTER.hideJunior; styleJr(); sr(); };
   styleJr();
   const si=document.getElementById("cv-search"); si.value=CV_FILTER.search||""; let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>{CV_FILTER.search=si.value.trim();render();},250);};
