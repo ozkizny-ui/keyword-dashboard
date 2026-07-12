@@ -405,7 +405,7 @@ document.addEventListener("click",()=>document.querySelectorAll(".ms-list").forE
 const rendered=new Set(["weekly"]);
 const PAGE_RENDER={
   coverage:renderCoverage, discovery:renderDiscovery,
-  trend:renderTrend, shopping:()=>renderRank("shopping"), powerlink:()=>renderRank("powerlink"),
+  trend:renderTrend, shopping:renderShopping, powerlink:()=>renderRank("powerlink"),
   blogcafe:renderBlogCafe, newkw:renderNewkw, manage:renderManage,
 };
 const VALID_PAGES=["weekly","coverage","discovery","trend","shopping","powerlink","blogcafe","newkw","manage"];
@@ -719,8 +719,8 @@ function parseRank(data){
   }).filter(o=>o.keyword);
   return {weekCols,rows};
 }
-async function renderRank(type){
-  const body=document.getElementById(type+"-body"); body.innerHTML=loadingHTML;
+async function renderRank(type,containerId){
+  const body=document.getElementById(containerId||type+"-body"); body.innerHTML=loadingHTML;
   let data; try{ data=await api("rank",{type}); }catch(e){ body.innerHTML=`<div class="info">로드 실패: ${e.message}</div>`; return; }
   const {weekCols,rows}=parseRank(data);
   if(!rows.length){ body.innerHTML=`<div class="info">데이터가 없습니다.</div>`; return; }
@@ -877,6 +877,80 @@ async function renderBlogCafe(){
     }catch(e){ msg.innerHTML=`<span style="color:var(--red)">실패: ${e.message} — Apps Script 네이버 키 설정 필요</span>`; }
   };
   const si=document.getElementById("bc-search"); let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>render(si.value.trim().toLowerCase()),250);};
+  render("");
+}
+
+/* ── 쇼핑검색 순위 (광고 / 오가닉 토글) ── */
+async function renderShopping(){
+  const body=document.getElementById("shopping-body");
+  body.innerHTML=`
+    <div class="seg" id="shop-seg" style="margin:6px 0 2px">
+      <button data-m="ad" class="on">🛒 광고 순위</button>
+      <button data-m="organic">🌿 오가닉 순위</button>
+    </div>
+    <div id="shopping-ad"></div>
+    <div id="shopping-org" hidden></div>`;
+  const loaded={ad:false,org:false};
+  const show=m=>{
+    document.querySelectorAll("#shop-seg button").forEach(b=>b.classList.toggle("on",b.dataset.m===m));
+    document.getElementById("shopping-ad").hidden=m!=="ad";
+    document.getElementById("shopping-org").hidden=m!=="organic";
+    if(m==="ad"&&!loaded.ad){ loaded.ad=true; renderRank("shopping","shopping-ad"); }
+    if(m==="organic"&&!loaded.org){ loaded.org=true; renderShopOrganic("shopping-org"); }
+  };
+  document.querySelectorAll("#shop-seg button").forEach(b=>b.onclick=()=>show(b.dataset.m));
+  show("ad");
+}
+
+/* ── 쇼핑 오가닉(비광고) 순위 — shop.json 자동조회 + 광고 비교 ── */
+async function renderShopOrganic(cid){
+  const body=document.getElementById(cid); body.innerHTML=loadingHTML;
+  let org,ad;
+  try{ [org,ad]=await Promise.all([api("rank",{type:"shopOrganic"}),api("rank",{type:"shopping"})]); }
+  catch(e){ body.innerHTML=`<div class="info">로드 실패: ${e.message}</div>`; return; }
+  const po=parseRank(org), pa=parseRank(ad);
+  const adLatest=pa.weekCols[pa.weekCols.length-1];
+  const adMap={}; pa.rows.forEach(r=>{ if(r.w[adLatest]!=null) adMap[r.keyword]=r.w[adLatest]; });
+  // 조회 대상: 광고 시트 키워드 ∪ 기존 오가닉 시트 키워드 (광고↔오가닉 같은 세트 비교)
+  let seedKws=[...new Set([...pa.rows.map(r=>r.keyword), ...po.rows.map(r=>r.keyword)])];
+  const CAPF=500, truncated=seedKws.length>CAPF; seedKws=seedKws.slice(0,CAPF);
+  body.innerHTML=`
+    <div class="card-title" style="margin-top:6px">🌿 쇼핑 오가닉 순위</div>
+    <div style="font-size:.74rem;color:var(--muted);margin:4px 0 10px">네이버 쇼핑 검색결과에서 '오즈키즈' 상품의 <b>오가닉(비광고)</b> 노출 순위(최대 100위) · 0=100위권 밖 · 빈칸=미조회 · 🔺상승 🔻하락<br><b style="color:var(--accent-d)">오가닉이 1페이지(≤10위)인데 광고도 집행 중이면 → 💡 광고 축소 검토 후보</b></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button id="so-fetch" class="dl-btn primary">🔄 자동 조회 (네이버 쇼핑)</button>
+      <span id="so-fetchmsg" class="cap-note" style="margin:0"></span>
+    </div>
+    <input id="so-search" class="rank-search" placeholder="🔎 키워드 검색..." style="margin:10px 0 0;display:block">
+    <div id="so-table"></div>`;
+  const cols=[...po.weekCols].reverse(), latest=po.weekCols[po.weekCols.length-1], prev=po.weekCols[po.weekCols.length-2];
+  const render=q=>{
+    let list=po.rows.filter(r=>!q||r.keyword.toLowerCase().includes(q));
+    list.sort((a,b)=>{const x=a.w[latest],y=b.w[latest];const xx=x==null?1e9:(x===0?1e8:x),yy=y==null?1e9:(y===0?1e8:y);return xx-yy;});
+    const CAP=500, shown=list.slice(0,CAP);
+    const rk=v=>v==null?'<span class="flat">-</span>':(v===0?'<span class="flat">순위권 밖</span>':v);
+    const arrow=r=>{const c=r.w[latest],p=prev?r.w[prev]:null;if(c==null||p==null||c===0||p===0)return"";if(c<p)return' <span class="r-up">🔺</span>';if(c>p)return' <span class="r-down">🔻</span>';return"";};
+    const judge=r=>{ const o=r.w[latest], a=adMap[r.keyword], oTop=(o!=null&&o!==0&&o<=10);
+      if(oTop&&a!=null) return '<span class="rk-b" style="background:rgba(240,180,40,.2);color:#8a6d1a">💡 광고 축소 검토</span>';
+      if(oTop) return '<span class="rk-b rk-new">🌿 오가닉 상위</span>';
+      return ''; };
+    document.getElementById("so-table").innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 키워드</div>
+      <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">키워드</th>${cols.map(c=>`<th title="오가닉 순위">${c}</th>`).join("")}<th style="text-align:center">🛒 광고<br>최신</th><th style="text-align:center">판단</th></tr></thead><tbody>
+      ${shown.map(r=>`<tr><td class="lcell">${r.keyword}</td>${cols.map(c=>`<td>${c===latest?rk(r.w[c])+arrow(r):rk(r.w[c])}</td>`).join("")}<td style="text-align:center;color:var(--muted)">${adMap[r.keyword]!=null?Math.round(adMap[r.keyword]):'<span class="flat">-</span>'}</td><td style="text-align:center">${judge(r)}</td></tr>`).join("")}
+      </tbody></table></div>${list.length>CAP?`<div class="cap-note">전체 ${fmt(list.length)}개 중 상위 ${CAP}개 표시.</div>`:""}`;
+  };
+  document.getElementById("so-fetch").onclick=async()=>{
+    const msg=document.getElementById("so-fetchmsg");
+    if(!seedKws.length){ msg.innerHTML=`<span style="color:var(--red)">조회할 키워드가 없어요. 먼저 '광고 순위' 탭에 리포트 CSV를 업로드하세요.</span>`; return; }
+    if(!confirm(`네이버 쇼핑에서 '오즈키즈' 오가닉 순위를 실시간 조회합니다.\n키워드 ${fmt(seedKws.length)}개${truncated?" (상위 500개만 이번 회차)":""} — 약 ${Math.ceil(seedKws.length*0.35/60)}분 소요, 끝나면 시트에 저장됩니다.\n진행할까요?`)) return;
+    msg.textContent="조회 중… (창을 닫지 마세요)";
+    try{
+      const r=await apiPost({action:"collect_rank", kind:"shopOrganic", kw:seedKws, week:thisWeekLabel()});
+      if(r.error) throw new Error(r.error);
+      msg.innerHTML=`✅ ${r.saved}개 저장 (${r.week}) — 새로고침 시 반영`;
+    }catch(e){ msg.innerHTML=`<span style="color:var(--red)">실패: ${e.message} — Apps Script 네이버 키/재배포 확인</span>`; }
+  };
+  const si=document.getElementById("so-search"); let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>render(si.value.trim().toLowerCase()),250);};
   render("");
 }
 

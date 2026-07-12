@@ -62,6 +62,7 @@ var KWWEB = {
     SHEET: {
       weekly: '주간검색수', trend: '연간트렌드',
       shopping: '쇼핑검색순위', powerlink: '파워링크순위',
+      shopOrganic: '쇼핑오가닉순위',
       blog: '블로그순위', cafe: '카페순위',
       settings: '설정', newkw: '신규키워드', dict: '키워드사전'
     }
@@ -130,8 +131,10 @@ var KWWEB = {
         case 'save_new_keywords': this.saveNewKeywords(body.rows || []);  return this.json({ ok: true, saved: (body.rows || []).length });
         case 'append_dict':       return this.json(appendDictKw(body.keyword, body.rep, body.seed));
         case 'append_rank':       this.appendRankHistory(body.rows || [], body.week, S[body.rank_type] || S.shopping); return this.json({ ok: true, saved: (body.rows || []).length });
-        case 'collect_rank': {     // 블로그/카페 순위 라이브 조회 + 저장 (한 번에)
-          var ranks = body.kind === 'cafe' ? this.fetchCafeRank(body.kw || []) : this.fetchBlogRank(body.kw || []);
+        case 'collect_rank': {     // 블로그/카페/쇼핑오가닉 순위 라이브 조회 + 저장 (한 번에)
+          var ranks = body.kind === 'cafe' ? this.fetchCafeRank(body.kw || [])
+                    : body.kind === 'shopOrganic' ? this.fetchShoppingRank(body.kw || [])
+                    : this.fetchBlogRank(body.kw || []);
           var rrows = ranks.map(function (r) { return { keyword: r.keyword, avg_rank: r.rank }; });
           this.appendRankHistory(rrows, body.week, S[body.kind] || S.blog);
           return this.json({ ok: true, saved: rrows.length, week: body.week });
@@ -373,6 +376,13 @@ var KWWEB = {
     return this.rank('https://openapi.naver.com/v1/search/cafearticle.json', keywords, function (it) {
       var t = (it.title || '').toLowerCase(), d = (it.description || '').toLowerCase();
       return t.indexOf('오즈키즈') >= 0 || t.indexOf('ozkiz') >= 0 || d.indexOf('오즈키즈') >= 0 || d.indexOf('ozkiz') >= 0;
+    });
+  },
+  // 네이버 쇼핑 오가닉(비광고) 순위 — shop.json 검색결과에서 '오즈키즈' 상품이 나오는 첫 위치(최대 100)
+  fetchShoppingRank: function (keywords) {
+    return this.rank('https://openapi.naver.com/v1/search/shop.json', keywords, function (it) {
+      var s = (it.mallName || '') + ' ' + (it.brand || '') + ' ' + (it.maker || '') + ' ' + (it.title || '');
+      return s.indexOf('오즈키즈') >= 0 || s.toLowerCase().indexOf('ozkiz') >= 0;
     });
   },
 
