@@ -45,6 +45,28 @@ function appendDictKw(keyword, rep, seed) {
   return { ok: true, keyword: keyword };
 }
 
+// ── 브랜드보드 네이버 쇼핑 검색순위(제품×키워드) — service_role로 읽음(RLS 우회) ──
+//   스크립트 속성 BRANDBOARD_SERVICE_KEY 필요(서버측, 프론트·응답 노출 X).
+//   반환 { values:[{created_at,product_id,keyword,rank,product_url,mall_name,title,price}], count } | { error }
+function brandboardRankings(days, limit) {
+  var svcKey = PropertiesService.getScriptProperties().getProperty('BRANDBOARD_SERVICE_KEY');
+  if (!svcKey) return { error: 'BRANDBOARD_SERVICE_KEY 스크립트 속성 미설정' };
+  var SB = 'https://wakgrdmdxxuljqkbdplv.supabase.co';
+  var lim = Math.min(parseInt(limit, 10) || 10000, 20000);
+  var q = SB + '/rest/v1/naver_keyword_rankings'
+        + '?select=created_at,product_id,keyword,rank,product_url,mall_name,title,price'
+        + '&order=created_at.desc&limit=' + lim;
+  if (days) {
+    var d = new Date(); d.setDate(d.getDate() - (parseInt(days, 10) || 30));
+    q += '&created_at=gte.' + Utilities.formatDate(d, 'Asia/Seoul', "yyyy-MM-dd'T'00:00:00");
+  }
+  var res = UrlFetchApp.fetch(q, { headers: { apikey: svcKey, Authorization: 'Bearer ' + svcKey }, muteHttpExceptions: true });
+  if (res.getResponseCode() >= 400) return { error: 'naver_keyword_rankings 조회 실패(' + res.getResponseCode() + '): ' + res.getContentText().slice(0, 200) };
+  var rows; try { rows = JSON.parse(res.getContentText()); } catch (e) { rows = null; }
+  if (!Array.isArray(rows)) return { error: '응답 형식 오류' };
+  return { values: rows, count: rows.length };
+}
+
 var KWWEB = {
 
   // ═══════════════ CONFIG — 값을 채우세요 ═══════════════
@@ -115,6 +137,7 @@ var KWWEB = {
         case 'datalab':           return this.json(this.fetchDatalabTrend(this.csv(p.kw), p.start, p.end));
         case 'blog_rank':         return this.json(this.fetchBlogRank(this.csv(p.kw)));
         case 'cafe_rank':         return this.json(this.fetchCafeRank(this.csv(p.kw)));
+        case 'brandboard_rank':   return this.json(brandboardRankings(p.days, p.limit));
         default:                  return this.json({ error: 'unknown action', actions: ['keyword_dict','weekly','trend','rank','settings','newkw','search_volume','related_kw','shopping_category','datalab','blog_rank','cafe_rank'] });
       }
     } catch (err) { return this.json({ error: String(err && err.stack || err) }); }
