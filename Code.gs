@@ -66,23 +66,27 @@ function brandboardRankings() {
     var since = latestDate + 'T00:00:00';
     var OZ = encodeURIComponent('오즈키즈');
     // 추적 키워드 목록 + top1 경쟁사 (최신 스냅샷의 rank=1 행 = 키워드당 1줄)
-    var listRows = get('select=keyword,mall_name,price&rank=eq.1&created_at=gte.' + since + '&limit=1000');
-    // 오즈키즈 오가닉 이력(최근) — 최신 best/제품수 + 직전 스냅샷 best(증감)
-    var oz = get('select=created_at,keyword,rank&mall_name=eq.' + OZ + '&order=created_at.desc&limit=1000');
+    var listRows = get('select=keyword,mall_name,price,title&rank=eq.1&created_at=gte.' + since + '&limit=1000');
+    // 오즈키즈 오가닉 이력(최근) — 최신 상품목록(제목·순위) + 직전 스냅샷 best(증감)
+    var oz = get('select=created_at,keyword,rank,title,price,product_url&mall_name=eq.' + OZ + '&order=created_at.desc&limit=1000');
     var ozByKw = {};
     oz.forEach(function (r) {
       var k = r.keyword, dt = String(r.created_at).slice(0, 10);
       ozByKw[k] = ozByKw[k] || {};
-      (ozByKw[k][dt] = ozByKw[k][dt] || []).push(r.rank);
+      (ozByKw[k][dt] = ozByKw[k][dt] || []).push(r);
     });
     var out = listRows.map(function (lr) {
       var k = lr.keyword, dmap = ozByKw[k] || {};
       var dates = Object.keys(dmap).sort().reverse();
-      var latestOz = dmap[latestDate] || [];
-      var best = latestOz.length ? Math.min.apply(null, latestOz) : null;
+      var latestOz = (dmap[latestDate] || []).slice().sort(function (a, b) { return a.rank - b.rank; });
+      var best = latestOz.length ? latestOz[0].rank : null;
       var prevDate = dates.filter(function (d) { return d < latestDate; })[0];
-      var prevBest = prevDate ? Math.min.apply(null, dmap[prevDate]) : null;
-      return { keyword: k, ozBest: best, ozCount: latestOz.length, ozPrev: prevBest, top1mall: lr.mall_name, top1price: lr.price };
+      var prevBest = prevDate ? Math.min.apply(null, dmap[prevDate].map(function (x) { return x.rank; })) : null;
+      return {
+        keyword: k, ozBest: best, ozCount: latestOz.length, ozPrev: prevBest,
+        top1mall: lr.mall_name, top1price: lr.price, top1title: lr.title,
+        ozProducts: latestOz.map(function (x) { return { rank: x.rank, title: x.title, price: x.price, url: x.product_url }; })
+      };
     });
     return { date: latestDate, count: out.length, values: out };
   } catch (e) { return { error: String(e) }; }
