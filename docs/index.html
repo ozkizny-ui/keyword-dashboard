@@ -905,50 +905,49 @@ async function renderShopping(){
 /* ── 쇼핑 오가닉(비광고) 순위 — shop.json 자동조회 + 광고 비교 ── */
 async function renderShopOrganic(cid){
   const body=document.getElementById(cid); body.innerHTML=loadingHTML;
-  let org,ad;
-  try{ [org,ad]=await Promise.all([api("rank",{type:"shopOrganic"}),api("rank",{type:"shopping"})]); }
+  let bb,ad;
+  try{ [bb,ad]=await Promise.all([api("brandboard_rank"),api("rank",{type:"shopping"})]); }
   catch(e){ body.innerHTML=`<div class="info">로드 실패: ${e.message}</div>`; return; }
-  const po=parseRank(org), pa=parseRank(ad);
-  const adLatest=pa.weekCols[pa.weekCols.length-1];
+  if(bb&&bb.error){ body.innerHTML=`<div class="info">브랜드보드 조회 실패: ${bb.error}<br><span class="cap-note">Apps Script BRANDBOARD_SERVICE_KEY 설정 + 재배포 확인</span></div>`; return; }
+  const rows0=(bb&&bb.values)||[];
+  if(!rows0.length || rows0[0].ozBest===undefined){ body.innerHTML=`<div class="info">브랜드보드 데이터가 없거나 백엔드 재배포가 필요합니다.<br><span class="cap-note">Code2.gs의 brandboardRankings를 최신 버전으로 교체 후 재배포하세요.</span></div>`; return; }
+  const pa=parseRank(ad), adLatest=pa.weekCols[pa.weekCols.length-1];
   const adMap={}; pa.rows.forEach(r=>{ if(r.w[adLatest]!=null) adMap[r.keyword]=r.w[adLatest]; });
-  // 조회 대상: 광고 시트 키워드 ∪ 기존 오가닉 시트 키워드 (광고↔오가닉 같은 세트 비교)
-  let seedKws=[...new Set([...pa.rows.map(r=>r.keyword), ...po.rows.map(r=>r.keyword)])];
-  const CAPF=500, truncated=seedKws.length>CAPF; seedKws=seedKws.slice(0,CAPF);
+  const cls=r=>{ const strong=r.ozBest!=null&&r.ozBest<=10, adv=adMap[r.keyword]!=null;
+    if(strong&&adv)return"a"; if(strong&&!adv)return"c"; if(!strong&&adv)return"b"; return"d"; };
+  const Q={a:0,b:0,c:0,d:0}; rows0.forEach(r=>Q[cls(r)]++);
   body.innerHTML=`
-    <div class="card-title" style="margin-top:6px">🌿 쇼핑 오가닉 순위</div>
-    <div style="font-size:.74rem;color:var(--muted);margin:4px 0 10px">네이버 쇼핑 검색결과에서 '오즈키즈' 상품의 <b>오가닉(비광고)</b> 노출 순위(최대 100위) · 0=100위권 밖 · 빈칸=미조회 · 🔺상승 🔻하락<br><b style="color:var(--accent-d)">오가닉이 1페이지(≤10위)인데 광고도 집행 중이면 → 💡 광고 축소 검토 후보</b></div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button id="so-fetch" class="dl-btn primary">🔄 자동 조회 (네이버 쇼핑)</button>
-      <span id="so-fetchmsg" class="cap-note" style="margin:0"></span>
+    <div class="card-title" style="margin-top:6px">🌿 쇼핑 오가닉 순위 <span style="font-size:.7rem;color:var(--muted);font-weight:400">(브랜드보드 · ${bb.date||"-"})</span></div>
+    <div style="font-size:.74rem;color:var(--muted);margin:4px 0 10px">네이버 쇼핑 검색결과 <b>오가닉(광고 제외)</b> 순위 · 오즈키즈 공식스토어 기준 · 직전 대비 🔺상승 🔻하락 · 미진입=top100 밖<br><b style="color:var(--accent-d)">오가닉 1페이지(≤10위)인데 광고도 집행 중이면 → 💡 광고 축소 검토</b></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <span class="rk-b" style="background:rgba(240,180,40,.2);color:#8a6d1a">💡 광고 축소 검토 ${Q.a}</span>
+      <span class="rk-b rk-new">🌿 오가닉 상위(무료) ${Q.c}</span>
+      <span class="rk-b" style="background:var(--surface2);color:var(--muted)">🛒 광고 의존 ${Q.b}</span>
+      <span class="rk-b" style="background:rgba(224,82,82,.14);color:#791f1f">⚫ 사각지대 ${Q.d}</span>
     </div>
-    <input id="so-search" class="rank-search" placeholder="🔎 키워드 검색..." style="margin:10px 0 0;display:block">
+    <input id="so-search" class="rank-search" placeholder="🔎 키워드 검색..." style="margin:0 0 4px;display:block">
     <div id="so-table"></div>`;
-  const cols=[...po.weekCols].reverse(), latest=po.weekCols[po.weekCols.length-1], prev=po.weekCols[po.weekCols.length-2];
+  const rankPill=v=>{ if(v==null)return'<span class="flat">미진입</span>';
+    const c=v<=10?'2da882':(v<=30?'d99a2b':'9ca3af'); return `<span style="color:#${c};font-weight:700">${v}위</span>`; };
+  const arrow=r=>{ if(r.ozBest==null||r.ozPrev==null)return""; const d=r.ozPrev-r.ozBest;
+    if(d>0)return` <span class="r-up">🔺${d}</span>`; if(d<0)return` <span class="r-down">🔻${-d}</span>`; return""; };
+  const judge=r=>{ const t=cls(r);
+    if(t==="a")return'<span class="rk-b" style="background:rgba(240,180,40,.2);color:#8a6d1a">💡 광고 축소 검토</span>';
+    if(t==="c")return'<span class="rk-b rk-new">🌿 오가닉 상위</span>';
+    if(t==="b")return'<span class="rk-b" style="background:var(--surface2);color:var(--muted)">🛒 광고 의존</span>';
+    return'<span class="rk-b" style="background:rgba(224,82,82,.14);color:#791f1f">⚫ 사각지대</span>'; };
   const render=q=>{
-    let list=po.rows.filter(r=>!q||r.keyword.toLowerCase().includes(q));
-    list.sort((a,b)=>{const x=a.w[latest],y=b.w[latest];const xx=x==null?1e9:(x===0?1e8:x),yy=y==null?1e9:(y===0?1e8:y);return xx-yy;});
-    const CAP=500, shown=list.slice(0,CAP);
-    const rk=v=>v==null?'<span class="flat">-</span>':(v===0?'<span class="flat">순위권 밖</span>':v);
-    const arrow=r=>{const c=r.w[latest],p=prev?r.w[prev]:null;if(c==null||p==null||c===0||p===0)return"";if(c<p)return' <span class="r-up">🔺</span>';if(c>p)return' <span class="r-down">🔻</span>';return"";};
-    const judge=r=>{ const o=r.w[latest], a=adMap[r.keyword], oTop=(o!=null&&o!==0&&o<=10);
-      if(oTop&&a!=null) return '<span class="rk-b" style="background:rgba(240,180,40,.2);color:#8a6d1a">💡 광고 축소 검토</span>';
-      if(oTop) return '<span class="rk-b rk-new">🌿 오가닉 상위</span>';
-      return ''; };
+    let list=rows0.filter(r=>!q||r.keyword.toLowerCase().includes(q));
+    list.sort((a,b)=>(a.ozBest==null?9999:a.ozBest)-(b.ozBest==null?9999:b.ozBest));
     document.getElementById("so-table").innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 키워드</div>
-      <div class="tbl-wrap scroll-box"><table><thead><tr><th class="lcell">키워드</th>${cols.map(c=>`<th title="오가닉 순위">${c}</th>`).join("")}<th style="text-align:center">🛒 광고<br>최신</th><th style="text-align:center">판단</th></tr></thead><tbody>
-      ${shown.map(r=>`<tr><td class="lcell">${r.keyword}</td>${cols.map(c=>`<td>${c===latest?rk(r.w[c])+arrow(r):rk(r.w[c])}</td>`).join("")}<td style="text-align:center;color:var(--muted)">${adMap[r.keyword]!=null?Math.round(adMap[r.keyword]):'<span class="flat">-</span>'}</td><td style="text-align:center">${judge(r)}</td></tr>`).join("")}
-      </tbody></table></div>${list.length>CAP?`<div class="cap-note">전체 ${fmt(list.length)}개 중 상위 ${CAP}개 표시.</div>`:""}`;
-  };
-  document.getElementById("so-fetch").onclick=async()=>{
-    const msg=document.getElementById("so-fetchmsg");
-    if(!seedKws.length){ msg.innerHTML=`<span style="color:var(--red)">조회할 키워드가 없어요. 먼저 '광고 순위' 탭에 리포트 CSV를 업로드하세요.</span>`; return; }
-    if(!confirm(`네이버 쇼핑에서 '오즈키즈' 오가닉 순위를 실시간 조회합니다.\n키워드 ${fmt(seedKws.length)}개${truncated?" (상위 500개만 이번 회차)":""} — 약 ${Math.ceil(seedKws.length*0.35/60)}분 소요, 끝나면 시트에 저장됩니다.\n진행할까요?`)) return;
-    msg.textContent="조회 중… (창을 닫지 마세요)";
-    try{
-      const r=await apiPost({action:"collect_rank", kind:"shopOrganic", kw:seedKws, week:thisWeekLabel()});
-      if(r.error) throw new Error(r.error);
-      msg.innerHTML=`✅ ${r.saved}개 저장 (${r.week}) — 새로고침 시 반영`;
-    }catch(e){ msg.innerHTML=`<span style="color:var(--red)">실패: ${e.message} — Apps Script 네이버 키/재배포 확인</span>`; }
+      <div class="tbl-wrap scroll-box"><table style="min-width:640px"><thead><tr><th class="lcell">키워드</th><th style="text-align:center">🌿 오가닉</th><th style="text-align:center">노출<br>제품수</th><th style="text-align:center">🛒 광고</th><th class="lcell">top1 경쟁사</th><th style="text-align:center">판단</th></tr></thead><tbody>
+      ${list.map(r=>`<tr><td class="lcell">${r.keyword}</td>
+        <td style="text-align:center">${rankPill(r.ozBest)}${arrow(r)}</td>
+        <td style="text-align:center;color:var(--muted)">${r.ozCount||0}</td>
+        <td style="text-align:center;color:var(--muted)">${adMap[r.keyword]!=null?Math.round(adMap[r.keyword])+'위':'<span class="flat">안함</span>'}</td>
+        <td class="lcell" style="font-size:.72rem;color:var(--muted)">${r.top1mall||''}${r.top1price?` · ${fmt(r.top1price)}원`:''}</td>
+        <td style="text-align:center">${judge(r)}</td></tr>`).join("")}
+      </tbody></table></div>`;
   };
   const si=document.getElementById("so-search"); let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>render(si.value.trim().toLowerCase()),250);};
   render("");

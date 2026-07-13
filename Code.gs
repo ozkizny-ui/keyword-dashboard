@@ -47,24 +47,45 @@ function appendDictKw(keyword, rep, seed) {
 
 // ── 브랜드보드 네이버 쇼핑 검색순위(제품×키워드) — service_role로 읽음(RLS 우회) ──
 //   스크립트 속성 BRANDBOARD_SERVICE_KEY 필요(서버측, 프론트·응답 노출 X).
-//   반환 { values:[{created_at,product_id,keyword,rank,product_url,mall_name,title,price}], count } | { error }
-function brandboardRankings(days, limit) {
+//   PostgREST max-rows=1000 회피: 원시행을 다 받지 않고 타겟 쿼리로 키워드별 요약 반환.
+//   반환 { date, count, values:[{keyword, ozBest, ozCount, ozPrev, top1mall, top1price}] } | { error }
+function brandboardRankings() {
   var svcKey = PropertiesService.getScriptProperties().getProperty('BRANDBOARD_SERVICE_KEY');
   if (!svcKey) return { error: 'BRANDBOARD_SERVICE_KEY 스크립트 속성 미설정' };
-  var SB = 'https://wakgrdmdxxuljqkbdplv.supabase.co';
-  var lim = Math.min(parseInt(limit, 10) || 10000, 20000);
-  var q = SB + '/rest/v1/naver_keyword_rankings'
-        + '?select=created_at,product_id,keyword,rank,product_url,mall_name,title,price'
-        + '&order=created_at.desc&limit=' + lim;
-  if (days) {
-    var d = new Date(); d.setDate(d.getDate() - (parseInt(days, 10) || 30));
-    q += '&created_at=gte.' + Utilities.formatDate(d, 'Asia/Seoul', "yyyy-MM-dd'T'00:00:00");
+  var BASE = 'https://wakgrdmdxxuljqkbdplv.supabase.co/rest/v1/naver_keyword_rankings';
+  var H = { apikey: svcKey, Authorization: 'Bearer ' + svcKey };
+  function get(qs) {
+    var res = UrlFetchApp.fetch(BASE + '?' + qs, { headers: H, muteHttpExceptions: true });
+    if (res.getResponseCode() >= 400) throw 'API ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 150);
+    return JSON.parse(res.getContentText());
   }
-  var res = UrlFetchApp.fetch(q, { headers: { apikey: svcKey, Authorization: 'Bearer ' + svcKey }, muteHttpExceptions: true });
-  if (res.getResponseCode() >= 400) return { error: 'naver_keyword_rankings 조회 실패(' + res.getResponseCode() + '): ' + res.getContentText().slice(0, 200) };
-  var rows; try { rows = JSON.parse(res.getContentText()); } catch (e) { rows = null; }
-  if (!Array.isArray(rows)) return { error: '응답 형식 오류' };
-  return { values: rows, count: rows.length };
+  try {
+    var top = get('select=created_at&order=created_at.desc&limit=1');
+    if (!top.length) return { date: null, count: 0, values: [] };
+    var latestDate = String(top[0].created_at).slice(0, 10);
+    var since = latestDate + 'T00:00:00';
+    var OZ = encodeURIComponent('오즈키즈');
+    // 추적 키워드 목록 + top1 경쟁사 (최신 스냅샷의 rank=1 행 = 키워드당 1줄)
+    var listRows = get('select=keyword,mall_name,price&rank=eq.1&created_at=gte.' + since + '&limit=1000');
+    // 오즈키즈 오가닉 이력(최근) — 최신 best/제품수 + 직전 스냅샷 best(증감)
+    var oz = get('select=created_at,keyword,rank&mall_name=eq.' + OZ + '&order=created_at.desc&limit=1000');
+    var ozByKw = {};
+    oz.forEach(function (r) {
+      var k = r.keyword, dt = String(r.created_at).slice(0, 10);
+      ozByKw[k] = ozByKw[k] || {};
+      (ozByKw[k][dt] = ozByKw[k][dt] || []).push(r.rank);
+    });
+    var out = listRows.map(function (lr) {
+      var k = lr.keyword, dmap = ozByKw[k] || {};
+      var dates = Object.keys(dmap).sort().reverse();
+      var latestOz = dmap[latestDate] || [];
+      var best = latestOz.length ? Math.min.apply(null, latestOz) : null;
+      var prevDate = dates.filter(function (d) { return d < latestDate; })[0];
+      var prevBest = prevDate ? Math.min.apply(null, dmap[prevDate]) : null;
+      return { keyword: k, ozBest: best, ozCount: latestOz.length, ozPrev: prevBest, top1mall: lr.mall_name, top1price: lr.price };
+    });
+    return { date: latestDate, count: out.length, values: out };
+  } catch (e) { return { error: String(e) }; }
 }
 
 var KWWEB = {
