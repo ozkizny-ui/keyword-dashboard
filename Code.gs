@@ -92,6 +92,23 @@ function brandboardRankings() {
   } catch (e) { return { error: String(e) }; }
 }
 
+// ── 쇼핑 광고요약: CSV 업로드가 덮어씀. 키워드별 상품형/브랜드형 순위 + 광고그룹명 ──
+//   rows: [{keyword, prod_rank, prod_group, brand_rank, brand_group}]
+function saveAdSummary(rows) {
+  var ss = SpreadsheetApp.openById('1uD-2gHghytC-Gb4ryEWGmhtjeFqGcTY59M90sxrASyI');
+  var sh = ss.getSheetByName('쇼핑광고요약') || ss.insertSheet('쇼핑광고요약');
+  sh.clearContents();
+  var header = ['keyword', 'prod_rank', 'prod_group', 'brand_rank', 'brand_group', 'updated'];
+  var ts = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+  var out = [header];
+  (rows || []).forEach(function (r) {
+    out.push([r.keyword || '', r.prod_rank == null ? '' : r.prod_rank, r.prod_group || '',
+              r.brand_rank == null ? '' : r.brand_rank, r.brand_group || '', ts]);
+  });
+  sh.getRange(1, 1, out.length, header.length).setValues(out);
+  return { ok: true, saved: out.length - 1, updated: ts };
+}
+
 var KWWEB = {
 
   // ═══════════════ CONFIG — 값을 채우세요 ═══════════════
@@ -163,6 +180,7 @@ var KWWEB = {
         case 'blog_rank':         return this.json(this.fetchBlogRank(this.csv(p.kw)));
         case 'cafe_rank':         return this.json(this.fetchCafeRank(this.csv(p.kw)));
         case 'brandboard_rank':   return this.json(brandboardRankings(p.days, p.limit));
+        case 'ad_summary':        return this.json(this.sheetData('쇼핑광고요약'));
         default:                  return this.json({ error: 'unknown action', actions: ['keyword_dict','weekly','trend','rank','settings','newkw','search_volume','related_kw','shopping_category','datalab','blog_rank','cafe_rank'] });
       }
     } catch (err) { return this.json({ error: String(err && err.stack || err) }); }
@@ -179,6 +197,7 @@ var KWWEB = {
         case 'save_new_keywords': this.saveNewKeywords(body.rows || []);  return this.json({ ok: true, saved: (body.rows || []).length });
         case 'append_dict':       return this.json(appendDictKw(body.keyword, body.rep, body.seed));
         case 'append_rank':       this.appendRankHistory(body.rows || [], body.week, S[body.rank_type] || S.shopping); return this.json({ ok: true, saved: (body.rows || []).length });
+        case 'save_ad_summary':   return this.json(saveAdSummary(body.rows || []));
         case 'collect_rank': {     // 블로그/카페/쇼핑오가닉 순위 라이브 조회 + 저장 (한 번에)
           var ranks = body.kind === 'cafe' ? this.fetchCafeRank(body.kw || [])
                     : body.kind === 'shopOrganic' ? this.fetchShoppingRank(body.kw || [])

@@ -282,6 +282,34 @@ function parseAdReport(rows, adType){
   }
   return {rows:Object.keys(agg).map(kw=>({keyword:kw, avg_rank:Math.round(agg[kw].s/agg[kw].n*10)/10})), week};
 }
+/* 쇼핑검색 광고 리포트(광고그룹명 포함) → 검색어별 상품형/브랜드형 순위(노출수 가중) + 대표 광고그룹.
+   쇼핑검색만(파워링크·플레이스 제외), 모바일만. 브랜드형=광고그룹명에 '브랜드형' 포함. */
+function parseShoppingAdReport(rows){
+  if(rows.length<2) return {rows:[], week:""};
+  const m=rows[0].join(" ").match(/(\d{4}\.\d{2}\.\d{2})\.?\s*~\s*(\d{4}\.\d{2}\.\d{2})/);
+  const week=m?`${m[1]}-${m[2]}`:"";
+  const H=rows[1];
+  const ci={camp:findCol(H,["캠페인유형"]),media:findCol(H,["PC/모바일매체","PC/모바일","모바일매체"]),
+    group:findCol(H,["광고그룹"]),query:findCol(H,["검색어"]),
+    rank:findCol(H,["평균노출순위","평균순위","노출순위"]),imp:findCol(H,["노출수"])};
+  const agg={};
+  for(let r=2;r<rows.length;r++){ const row=rows[r]; if(!row||!row.length) continue;
+    if(ci.camp>=0 && String(row[ci.camp]||"").trim()!=="쇼핑검색") continue;
+    if(ci.media>=0 && !String(row[ci.media]||"").includes("모바일")) continue;
+    const kw=String(row[ci.query]||"").trim(); if(!kw||kw==="-"||kw==="nan") continue;
+    const imp=ci.imp>=0?num(row[ci.imp]):0, pos=ci.rank>=0?num(row[ci.rank]):0, grp=String(row[ci.group]||"").trim();
+    const type=grp.includes("브랜드형")?"brand":"prod";
+    const a=agg[kw]=agg[kw]||{prod:{imp:0,wpos:0,grp:{}},brand:{imp:0,wpos:0,grp:{}}};
+    const t=a[type]; t.imp+=imp; t.wpos+=pos*imp; if(grp) t.grp[grp]=(t.grp[grp]||0)+imp;
+  }
+  const dom=g=>{let best="",bi=-1;for(const k in g){if(g[k]>bi){bi=g[k];best=k;}}return best;};
+  const out=Object.keys(agg).map(kw=>{ const a=agg[kw];
+    const pr=a.prod.imp>0?Math.round(a.prod.wpos/a.prod.imp*10)/10:null;
+    const br=a.brand.imp>0?Math.round(a.brand.wpos/a.brand.imp*10)/10:null;
+    return {keyword:kw, prod_rank:pr, prod_group:pr!=null?dom(a.prod.grp):"", brand_rank:br, brand_group:br!=null?dom(a.brand.grp):""};
+  }).filter(r=>r.prod_rank!=null||r.brand_rank!=null);
+  return {rows:out, week};
+}
 function thisWeekLabel(){ // 월~일 (수집 라벨 기본값, 편집 가능)
   const f=t=>new Intl.DateTimeFormat("en-CA",{timeZone:KST,year:"numeric",month:"2-digit",day:"2-digit"}).format(t).replace(/-/g,".");
   const wd=new Intl.DateTimeFormat("en-US",{timeZone:KST,weekday:"short"}).format(new Date());
@@ -885,28 +913,39 @@ async function renderShopOrganic(cid){
   cid=cid||"shopping-body";
   const body=document.getElementById(cid); body.innerHTML=loadingHTML;
   let bb,ad;
-  try{ [bb,ad]=await Promise.all([api("brandboard_rank"),api("rank",{type:"shopping"})]); }
+  try{ [bb,ad]=await Promise.all([api("brandboard_rank"),api("ad_summary")]); }
   catch(e){ body.innerHTML=`<div class="info">로드 실패: ${e.message}</div>`; return; }
   if(bb&&bb.error){ body.innerHTML=`<div class="info">브랜드보드 조회 실패: ${bb.error}<br><span class="cap-note">Apps Script BRANDBOARD_SERVICE_KEY 설정 + 재배포 확인</span></div>`; return; }
   const rows0=(bb&&bb.values)||[];
   if(!rows0.length || rows0[0].ozBest===undefined){ body.innerHTML=`<div class="info">브랜드보드 데이터가 없거나 백엔드 재배포가 필요합니다.<br><span class="cap-note">Code2.gs의 brandboardRankings를 최신 버전으로 교체 후 재배포하세요.</span></div>`; return; }
-  const pa=parseRank(ad), adLatest=pa.weekCols[pa.weekCols.length-1];
-  const adMap={}; pa.rows.forEach(r=>{ if(r.w[adLatest]!=null) adMap[r.keyword]=r.w[adLatest]; });
   const esc=s=>String(s==null?'':s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
   const tr=(s,n)=>{s=String(s==null?'':s);return s.length>n?s.slice(0,n)+'…':s;};
-  const cls=r=>{ const adv=adMap[r.keyword]!=null, b=r.ozBest, strong=b!=null&&b<=10, appearing=b!=null;
+  // 광고요약(쇼핑광고요약 시트): keyword→{상품형·브랜드형 순위+광고그룹}
+  const adMap={}; let adDate="";
+  if(ad&&ad.header&&ad.rows){ const AH=ad.header, iK=AH.indexOf("keyword"),iPr=AH.indexOf("prod_rank"),iPg=AH.indexOf("prod_group"),iBr=AH.indexOf("brand_rank"),iBg=AH.indexOf("brand_group"),iU=AH.indexOf("updated");
+    ad.rows.forEach(row=>{ const k=String(row[iK]||"").trim(); if(!k)return;
+      const pr=(row[iPr]!==""&&row[iPr]!=null)?parseFloat(row[iPr]):NaN, br=(row[iBr]!==""&&row[iBr]!=null)?parseFloat(row[iBr]):NaN;
+      adMap[k]={prod:isNaN(pr)?null:pr, prodG:String(row[iPg]||""), brand:isNaN(br)?null:br, brandG:String(row[iBg]||"")};
+      if(iU>=0&&row[iU])adDate=row[iU]; }); }
+  const isAdv=k=>{ const a=adMap[k]; return !!a&&(a.prod!=null||a.brand!=null); };
+  const shortGrp=g=>String(g||"").replace(/^★+/,"").replace(/^스스_쇼핑검색_브랜드형_/,"").replace(/^스스_쇼핑검색_/,"").replace(/^쇼핑검색_/,"");
+  const adCell=k=>{ const a=adMap[k]; if(!a||(a.prod==null&&a.brand==null))return '<span class="flat">안함</span>';
+    const s=[]; if(a.prod!=null)s.push(`🛍 <b>${a.prod}위</b> <span style="opacity:.7">${esc(shortGrp(a.prodG))}</span>`);
+    if(a.brand!=null)s.push(`💠 <b>${a.brand}위</b> <span style="opacity:.7">${esc(shortGrp(a.brandG))}</span>`);
+    return s.join("<br>"); };
+  const cls=r=>{ const adv=isAdv(r.keyword), b=r.ozBest, strong=b!=null&&b<=10, appearing=b!=null;
     if(strong&&adv)return"a"; if(strong&&!adv)return"c"; if(!strong&&adv)return"b"; if(appearing&&!adv)return"e"; return"d"; };
   const Q={a:0,b:0,c:0,e:0,d:0}; rows0.forEach(r=>Q[cls(r)]++);
   const CH={a:['rgba(240,180,40,.2)','#8a6d1a','💡 광고 축소 검토'],c:['var(--accent-l)','var(--accent-d)','🌿 오가닉 상위(무료)'],b:['var(--surface2)','var(--muted)','🛒 광고 의존'],e:['rgba(124,111,232,.16)','#5A4FD4','🔍 노출 방치'],d:['rgba(224,82,82,.14)','#791f1f','⚫ 완전 사각지대']};
   body.innerHTML=`
     <div class="card-title" style="margin-top:6px">🛒 쇼핑검색 순위 <span style="font-size:.7rem;color:var(--muted);font-weight:400">(브랜드보드 · ${bb.date||"-"})</span></div>
-    <div style="font-size:.74rem;color:var(--muted);margin:4px 0 10px">네이버 쇼핑 검색결과 <b>오가닉(광고 제외)</b> 순위 · 오즈키즈 공식스토어 기준 · 직전 대비 🔺상승 🔻하락 · 미진입=top100 밖 · <b>키워드 클릭 → 우리 상품 순위 펼침</b><br><b style="color:var(--accent-d)">🔍 노출 방치</b> = 노출은 되는데 1페이지도 아니고 광고도 안 함(방치)</div>
+    <div style="font-size:.74rem;color:var(--muted);margin:4px 0 10px">네이버 쇼핑 검색결과 <b>오가닉(광고 제외)</b> 순위 · 오즈키즈 공식스토어 기준 · 직전 대비 🔺상승 🔻하락 · 미진입=top100 밖 · <b>키워드 클릭 → 우리 상품 순위 펼침</b><br>광고: <b>🛍 상품형</b> · <b>💠 브랜드형</b>(항상 최상단) 분리 · 파워링크·플레이스 제외${adDate?` · 광고 ${adDate}`:''}<br><b style="color:var(--accent-d)">🔍 노출 방치</b> = 노출은 되는데 1페이지도 아니고 광고도 안 함(방치)</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       ${['a','c','b','e','d'].map(t=>`<span class="rk-b" style="background:${CH[t][0]};color:${CH[t][1]}">${CH[t][2]} ${Q[t]}</span>`).join("")}
     </div>
     <details style="margin:0 0 10px"><summary style="cursor:pointer;font-size:.78rem;color:var(--accent-d);font-weight:700">📤 광고 리포트 CSV 업로드 (새 주차 광고순위 갱신)</summary>
       <div class="card" style="margin:8px 0 0;padding:12px">
-        <div style="font-size:.72rem;color:var(--muted);margin-bottom:8px">네이버 검색광고 → 쇼핑 리포트 CSV. 모바일·평균노출순위 기준으로 검색어별 집계해 저장 → 위 표의 '🛒 광고' 순위에 반영됩니다.</div>
+        <div style="font-size:.72rem;color:var(--muted);margin-bottom:8px">네이버 검색광고 → 쇼핑 리포트 CSV(<b>광고그룹명 포함</b>). 상품형/브랜드형 분리·노출수 가중 집계(파워링크·플레이스 제외) → 위 표 광고 순위에 반영됩니다.</div>
         <input type="file" id="so-file" accept=".csv,text/csv" style="font-size:.8rem">
         <div id="so-up"></div>
       </div>
@@ -929,11 +968,11 @@ async function renderShopOrganic(cid){
     let list=rows0.filter(r=>!q||r.keyword.toLowerCase().includes(q));
     list.sort((a,b)=>(a.ozBest==null?9999:a.ozBest)-(b.ozBest==null?9999:b.ozBest));
     document.getElementById("so-table").innerHTML=`<div class="metric"><b>${fmt(list.length)}</b>개 키워드</div>
-      <div class="tbl-wrap scroll-box"><table style="min-width:640px"><thead><tr><th class="lcell">키워드</th><th style="text-align:center">🌿 오가닉</th><th style="text-align:center">노출<br>제품수</th><th style="text-align:center">🛒 광고</th><th class="lcell">top1 노출 상품</th><th style="text-align:center">판단</th></tr></thead><tbody>
+      <div class="tbl-wrap scroll-box"><table style="min-width:720px"><thead><tr><th class="lcell">키워드</th><th style="text-align:center">🌿 오가닉</th><th style="text-align:center">노출<br>제품수</th><th class="lcell">🛒 광고 (🛍상품·💠브랜드)</th><th class="lcell">top1 노출 상품</th><th style="text-align:center">판단</th></tr></thead><tbody>
       ${list.map((r,i)=>`<tr class="so-main" data-i="${i}" style="cursor:pointer"><td class="lcell">▸ ${r.keyword}</td>
         <td style="text-align:center">${rankPill(r.ozBest)}${arrow(r)}</td>
         <td style="text-align:center;color:var(--muted)">${r.ozCount||0}</td>
-        <td style="text-align:center;color:var(--muted)">${adMap[r.keyword]!=null?Math.round(adMap[r.keyword])+'위':'<span class="flat">안함</span>'}</td>
+        <td class="lcell" style="font-size:.72rem;color:var(--muted)">${adCell(r.keyword)}</td>
         <td class="lcell" style="font-size:.72rem;color:var(--muted)">${top1cell(r)}</td>
         <td style="text-align:center">${judge(r)}</td></tr>
         <tr class="so-det" data-i="${i}" hidden><td colspan="6" style="background:var(--surface2)">${detail(r)}</td></tr>`).join("")}
@@ -942,26 +981,27 @@ async function renderShopOrganic(cid){
   const tbl=document.getElementById("so-table");
   tbl.addEventListener("click", e=>{ if(e.target.closest("a"))return; const m=e.target.closest("tr.so-main"); if(!m)return;
     const det=m.nextElementSibling; if(det&&det.classList.contains("so-det")) det.hidden=!det.hidden; });
-  // 광고 리포트 CSV 업로드 → shopping 시트 append (표의 '광고' 비교값 갱신)
+  // 광고 리포트 CSV 업로드 → 상품형/브랜드형 분리 집계 → 쇼핑광고요약 시트 덮어쓰기
+  const bbSet=new Set(rows0.map(r=>r.keyword));
   const fileEl=document.getElementById("so-file"), upEl=document.getElementById("so-up");
   fileEl.onchange=()=>{
     const f=fileEl.files[0]; if(!f) return;
     const rd=new FileReader();
     rd.onload=()=>{
       try{
-        const parsed=parseAdReport(csvParse(decodeBuf(rd.result)), "shopping");
-        if(!parsed.rows.length){ upEl.innerHTML=`<div class="cap-note" style="color:var(--red)">키워드를 찾지 못했어요. 네이버 검색광고 쇼핑 리포트 CSV가 맞는지 확인하세요.</div>`; return; }
-        const wk=parsed.week||thisWeekLabel();
+        const parsed=parseShoppingAdReport(csvParse(decodeBuf(rd.result)));
+        if(!parsed.rows.length){ upEl.innerHTML=`<div class="cap-note" style="color:var(--red)">쇼핑검색 광고 데이터를 못 찾았어요. 광고그룹명 포함 CSV가 맞는지 확인하세요.</div>`; return; }
+        const toSave=parsed.rows.filter(r=>bbSet.has(r.keyword)); // 추적 키워드만
         upEl.innerHTML=`<div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <label style="font-size:.76rem;color:var(--muted)">주차</label>
-          <input id="so-wk" value="${wk}" style="padding:7px 10px;border:1px solid var(--border2);border-radius:8px;font-size:.8rem;width:220px">
-          <button id="so-save" class="dl-btn primary">💾 ${parsed.rows.length}개 저장</button>
+          <span style="font-size:.76rem;color:var(--muted)">전체 검색어 ${fmt(parsed.rows.length)}개 중 추적 키워드 <b>${toSave.length}</b>개</span>
+          <button id="so-save" class="dl-btn primary" ${toSave.length?"":"disabled"}>💾 저장</button>
           <span id="so-savemsg" class="cap-note"></span></div>`;
+        if(!toSave.length){ document.getElementById("so-savemsg").innerHTML='<span style="color:var(--red)">추적 키워드와 겹치는 광고가 없어요.</span>'; return; }
         document.getElementById("so-save").onclick=async()=>{
-          const week=document.getElementById("so-wk").value.trim()||wk, msg=document.getElementById("so-savemsg");
-          msg.textContent="저장 중…";
-          try{ const r=await apiPost({action:"append_rank", rank_type:"shopping", week, rows:parsed.rows});
-            msg.innerHTML=`✅ ${r.saved||parsed.rows.length}개 저장 — 새로고침 시 '🛒 광고' 순위에 반영`; }
+          const msg=document.getElementById("so-savemsg"); msg.textContent="저장 중…";
+          try{ const r=await apiPost({action:"save_ad_summary", rows:toSave});
+            if(r.error) throw new Error(r.error);
+            msg.innerHTML=`✅ ${r.saved}개 저장 (${r.updated||""}) — 새로고침 시 광고 순위에 반영`; }
           catch(e){ msg.innerHTML=`<span style="color:var(--red)">저장 실패: ${e.message}</span>`; }
         };
       }catch(e){ upEl.innerHTML=`<div class="cap-note" style="color:var(--red)">파싱 실패: ${e.message}</div>`; }
