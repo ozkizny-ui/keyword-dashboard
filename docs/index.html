@@ -405,7 +405,7 @@ document.addEventListener("click",()=>document.querySelectorAll(".ms-list").forE
 const rendered=new Set(["weekly"]);
 const PAGE_RENDER={
   coverage:renderCoverage, discovery:renderDiscovery,
-  trend:renderTrend, shopping:renderShopping, powerlink:()=>renderRank("powerlink"),
+  trend:renderTrend, shopping:renderShopOrganic, powerlink:()=>renderRank("powerlink"),
   blogcafe:renderBlogCafe, newkw:renderNewkw, manage:renderManage,
 };
 const VALID_PAGES=["weekly","coverage","discovery","trend","shopping","powerlink","blogcafe","newkw","manage"];
@@ -880,30 +880,9 @@ async function renderBlogCafe(){
   render("");
 }
 
-/* ── 쇼핑검색 순위 (광고 / 오가닉 토글) ── */
-async function renderShopping(){
-  const body=document.getElementById("shopping-body");
-  body.innerHTML=`
-    <div class="seg" id="shop-seg" style="margin:6px 0 2px">
-      <button data-m="ad" class="on">🛒 광고 순위</button>
-      <button data-m="organic">🌿 오가닉 순위</button>
-    </div>
-    <div id="shopping-ad"></div>
-    <div id="shopping-org" hidden></div>`;
-  const loaded={ad:false,org:false};
-  const show=m=>{
-    document.querySelectorAll("#shop-seg button").forEach(b=>b.classList.toggle("on",b.dataset.m===m));
-    document.getElementById("shopping-ad").hidden=m!=="ad";
-    document.getElementById("shopping-org").hidden=m!=="organic";
-    if(m==="ad"&&!loaded.ad){ loaded.ad=true; renderRank("shopping","shopping-ad"); }
-    if(m==="organic"&&!loaded.org){ loaded.org=true; renderShopOrganic("shopping-org"); }
-  };
-  document.querySelectorAll("#shop-seg button").forEach(b=>b.onclick=()=>show(b.dataset.m));
-  show("ad");
-}
-
-/* ── 쇼핑 오가닉(비광고) 순위 — shop.json 자동조회 + 광고 비교 ── */
+/* ── 쇼핑검색 순위 = 오가닉(브랜드보드) + 광고 비교 통합 + 리포트 CSV 업로드 ── */
 async function renderShopOrganic(cid){
+  cid=cid||"shopping-body";
   const body=document.getElementById(cid); body.innerHTML=loadingHTML;
   let bb,ad;
   try{ [bb,ad]=await Promise.all([api("brandboard_rank"),api("rank",{type:"shopping"})]); }
@@ -925,6 +904,13 @@ async function renderShopOrganic(cid){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       ${['a','c','b','e','d'].map(t=>`<span class="rk-b" style="background:${CH[t][0]};color:${CH[t][1]}">${CH[t][2]} ${Q[t]}</span>`).join("")}
     </div>
+    <details style="margin:0 0 10px"><summary style="cursor:pointer;font-size:.78rem;color:var(--accent-d);font-weight:700">📤 광고 리포트 CSV 업로드 (새 주차 광고순위 갱신)</summary>
+      <div class="card" style="margin:8px 0 0;padding:12px">
+        <div style="font-size:.72rem;color:var(--muted);margin-bottom:8px">네이버 검색광고 → 쇼핑 리포트 CSV. 모바일·평균노출순위 기준으로 검색어별 집계해 저장 → 위 표의 '🛒 광고' 순위에 반영됩니다.</div>
+        <input type="file" id="so-file" accept=".csv,text/csv" style="font-size:.8rem">
+        <div id="so-up"></div>
+      </div>
+    </details>
     <input id="so-search" class="rank-search" placeholder="🔎 키워드 검색..." style="margin:0 0 4px;display:block">
     <div id="so-table"></div>`;
   const rankPill=v=>{ if(v==null)return'<span class="flat">미진입</span>';
@@ -956,6 +942,32 @@ async function renderShopOrganic(cid){
   const tbl=document.getElementById("so-table");
   tbl.addEventListener("click", e=>{ if(e.target.closest("a"))return; const m=e.target.closest("tr.so-main"); if(!m)return;
     const det=m.nextElementSibling; if(det&&det.classList.contains("so-det")) det.hidden=!det.hidden; });
+  // 광고 리포트 CSV 업로드 → shopping 시트 append (표의 '광고' 비교값 갱신)
+  const fileEl=document.getElementById("so-file"), upEl=document.getElementById("so-up");
+  fileEl.onchange=()=>{
+    const f=fileEl.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      try{
+        const parsed=parseAdReport(csvParse(decodeBuf(rd.result)), "shopping");
+        if(!parsed.rows.length){ upEl.innerHTML=`<div class="cap-note" style="color:var(--red)">키워드를 찾지 못했어요. 네이버 검색광고 쇼핑 리포트 CSV가 맞는지 확인하세요.</div>`; return; }
+        const wk=parsed.week||thisWeekLabel();
+        upEl.innerHTML=`<div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:.76rem;color:var(--muted)">주차</label>
+          <input id="so-wk" value="${wk}" style="padding:7px 10px;border:1px solid var(--border2);border-radius:8px;font-size:.8rem;width:220px">
+          <button id="so-save" class="dl-btn primary">💾 ${parsed.rows.length}개 저장</button>
+          <span id="so-savemsg" class="cap-note"></span></div>`;
+        document.getElementById("so-save").onclick=async()=>{
+          const week=document.getElementById("so-wk").value.trim()||wk, msg=document.getElementById("so-savemsg");
+          msg.textContent="저장 중…";
+          try{ const r=await apiPost({action:"append_rank", rank_type:"shopping", week, rows:parsed.rows});
+            msg.innerHTML=`✅ ${r.saved||parsed.rows.length}개 저장 — 새로고침 시 '🛒 광고' 순위에 반영`; }
+          catch(e){ msg.innerHTML=`<span style="color:var(--red)">저장 실패: ${e.message}</span>`; }
+        };
+      }catch(e){ upEl.innerHTML=`<div class="cap-note" style="color:var(--red)">파싱 실패: ${e.message}</div>`; }
+    };
+    rd.readAsArrayBuffer(f);
+  };
   const si=document.getElementById("so-search"); let t; si.oninput=()=>{clearTimeout(t);t=setTimeout(()=>render(si.value.trim().toLowerCase()),250);};
   render("");
 }
