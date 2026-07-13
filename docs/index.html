@@ -899,7 +899,7 @@ async function renderShopOrganic(cid){
   const Q={a:0,b:0,c:0,e:0,d:0}; rows0.forEach(r=>Q[cls(r)]++);
   const CH={a:['rgba(240,180,40,.2)','#8a6d1a','💡 광고 축소 검토'],c:['var(--accent-l)','var(--accent-d)','🌿 오가닉 상위(무료)'],b:['var(--surface2)','var(--muted)','🛒 광고 의존'],e:['rgba(124,111,232,.16)','#5A4FD4','🔍 노출 방치'],d:['rgba(224,82,82,.14)','#791f1f','⚫ 완전 사각지대']};
   body.innerHTML=`
-    <div class="card-title" style="margin-top:6px">🌿 쇼핑 오가닉 순위 <span style="font-size:.7rem;color:var(--muted);font-weight:400">(브랜드보드 · ${bb.date||"-"})</span></div>
+    <div class="card-title" style="margin-top:6px">🛒 쇼핑검색 순위 <span style="font-size:.7rem;color:var(--muted);font-weight:400">(브랜드보드 · ${bb.date||"-"})</span></div>
     <div style="font-size:.74rem;color:var(--muted);margin:4px 0 10px">네이버 쇼핑 검색결과 <b>오가닉(광고 제외)</b> 순위 · 오즈키즈 공식스토어 기준 · 직전 대비 🔺상승 🔻하락 · 미진입=top100 밖 · <b>키워드 클릭 → 우리 상품 순위 펼침</b><br><b style="color:var(--accent-d)">🔍 노출 방치</b> = 노출은 되는데 1페이지도 아니고 광고도 안 함(방치)</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       ${['a','c','b','e','d'].map(t=>`<span class="rk-b" style="background:${CH[t][0]};color:${CH[t][1]}">${CH[t][2]} ${Q[t]}</span>`).join("")}
