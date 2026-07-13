@@ -945,7 +945,7 @@ async function renderShopOrganic(cid){
         <td style="text-align:center">${rankPill(r.ozBest)}${arrow(r)}</td>
         <td style="text-align:center;color:var(--muted)">${r.ozCount||0}</td>
         <td style="text-align:center;color:var(--muted)">${adMap[r.keyword]!=null?Math.round(adMap[r.keyword])+'위':'<span class="flat">안함</span>'}</td>
-        <td class="lcell" style="font-size:.72rem;color:var(--muted)">${r.top1mall||''}${r.top1price?` · ${fmt(r.top1price)}원`:''}</td>
+        <td class="lcell" style="font-size:.72rem;color:var(--muted)">${r.top1mall==='네이버'?'🗂 가격비교(카탈로그)':(r.top1mall||'')}${r.top1price?` · ${fmt(r.top1price)}원`:''}</td>
         <td style="text-align:center">${judge(r)}</td></tr>`).join("")}
       </tbody></table></div>`;
   };
