@@ -434,20 +434,43 @@ var KWWEB = {
       return { keyword: kw, rank: rank };
     });
   },
+  // rank 병렬판 — UrlFetchApp.fetchAll로 40개씩 동시 조회(수백 개도 1~2분). 대량 collect_rank용.
+  rankAll: function (url, keywords, matcher) {
+    var h = this.searchHeaders(), out = [], B = 40;
+    for (var i = 0; i < keywords.length; i += B) {
+      var batch = keywords.slice(i, i + B);
+      var reqs = batch.map(function (kw) {
+        return { url: url + '?query=' + encodeURIComponent(kw) + '&display=100&start=1&sort=sim', headers: h, muteHttpExceptions: true };
+      });
+      var resps; try { resps = UrlFetchApp.fetchAll(reqs); } catch (e) { resps = []; }
+      batch.forEach(function (kw, j) {
+        var rk = 0, res = resps[j];
+        try {
+          if (res && res.getResponseCode() === 200) {
+            var items = JSON.parse(res.getContentText()).items || [];
+            for (var k = 0; k < items.length; k++) { if (matcher(items[k])) { rk = k + 1; break; } }
+          }
+        } catch (x) {}
+        out.push({ keyword: kw, rank: rk });
+      });
+      Utilities.sleep(80);
+    }
+    return out;
+  },
   fetchBlogRank: function (keywords) {
-    return this.rank('https://openapi.naver.com/v1/search/blog.json', keywords, function (it) {
+    return this.rankAll('https://openapi.naver.com/v1/search/blog.json', keywords, function (it) {
       return (it.title || '').indexOf('오즈키즈') >= 0 || (it.description || '').indexOf('오즈키즈') >= 0;
     });
   },
   fetchCafeRank: function (keywords) {
-    return this.rank('https://openapi.naver.com/v1/search/cafearticle.json', keywords, function (it) {
+    return this.rankAll('https://openapi.naver.com/v1/search/cafearticle.json', keywords, function (it) {
       var t = (it.title || '').toLowerCase(), d = (it.description || '').toLowerCase();
       return t.indexOf('오즈키즈') >= 0 || t.indexOf('ozkiz') >= 0 || d.indexOf('오즈키즈') >= 0 || d.indexOf('ozkiz') >= 0;
     });
   },
   // 네이버 쇼핑 오가닉(비광고) 순위 — shop.json 검색결과에서 '오즈키즈' 상품이 나오는 첫 위치(최대 100)
   fetchShoppingRank: function (keywords) {
-    return this.rank('https://openapi.naver.com/v1/search/shop.json', keywords, function (it) {
+    return this.rankAll('https://openapi.naver.com/v1/search/shop.json', keywords, function (it) {
       var s = (it.mallName || '') + ' ' + (it.brand || '') + ' ' + (it.maker || '') + ' ' + (it.title || '');
       return s.indexOf('오즈키즈') >= 0 || s.toLowerCase().indexOf('ozkiz') >= 0;
     });
