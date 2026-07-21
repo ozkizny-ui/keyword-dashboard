@@ -60,35 +60,31 @@ function brandboardRankings() {
     return JSON.parse(res.getContentText());
   }
   try {
-    var top = get('select=created_at&order=created_at.desc&limit=1');
-    if (!top.length) return { date: null, count: 0, values: [] };
-    var latestDate = String(top[0].created_at).slice(0, 10);
-    var since = latestDate + 'T00:00:00';
+    // 최근 7일 창 — 특정 날짜 수집이 부분/실패여도 키워드별 '가장 최근 있는 날짜'로 커버(오늘치 1개만 와도 어제로 채움)
+    var since = Utilities.formatDate(new Date(Date.now() - 7 * 86400000), 'Asia/Seoul', "yyyy-MM-dd'T'00:00:00");
     var OZ = encodeURIComponent('오즈키즈');
-    // 추적 키워드 목록 + top1 경쟁사 (최신 스냅샷의 rank=1 행 = 키워드당 1줄)
-    var listRows = get('select=keyword,mall_name,price,title&rank=eq.1&created_at=gte.' + since + '&limit=1000');
-    // 오즈키즈 오가닉 이력(최근) — 최신 상품목록(제목·순위) + 직전 스냅샷 best(증감)
-    var oz = get('select=created_at,keyword,rank,title,price,product_url&mall_name=eq.' + OZ + '&order=created_at.desc&limit=1000');
+    // rank=1 행(키워드 목록 + top1) — 최근창·최신순 → 키워드별 최신 1건
+    var top1 = get('select=keyword,mall_name,price,title,created_at&rank=eq.1&created_at=gte.' + since + '&order=created_at.desc&limit=5000');
+    var oz = get('select=created_at,keyword,rank,title,price,product_url&mall_name=eq.' + OZ + '&created_at=gte.' + since + '&order=created_at.desc&limit=5000');
+    if (!top1.length) return { date: null, count: 0, values: [] };
+    var top1By = {}; top1.forEach(function (r) { if (!top1By[r.keyword]) top1By[r.keyword] = r; }); // desc → 첫 게 최신
     var ozByKw = {};
-    oz.forEach(function (r) {
-      var k = r.keyword, dt = String(r.created_at).slice(0, 10);
-      ozByKw[k] = ozByKw[k] || {};
-      (ozByKw[k][dt] = ozByKw[k][dt] || []).push(r);
-    });
-    var out = listRows.map(function (lr) {
-      var k = lr.keyword, dmap = ozByKw[k] || {};
-      var dates = Object.keys(dmap).sort().reverse();
-      var latestOz = (dmap[latestDate] || []).slice().sort(function (a, b) { return a.rank - b.rank; });
+    oz.forEach(function (r) { var k = r.keyword, dt = String(r.created_at).slice(0, 10); ozByKw[k] = ozByKw[k] || {}; (ozByKw[k][dt] = ozByKw[k][dt] || []).push(r); });
+    var maxDate = '';
+    var out = Object.keys(top1By).map(function (k) {
+      var lr = top1By[k], dmap = ozByKw[k] || {};
+      var dates = Object.keys(dmap).sort().reverse(); // 이 키워드가 오즈키즈로 잡힌 날짜(최신 우선)
+      var latestOz = dates.length ? dmap[dates[0]].slice().sort(function (a, b) { return a.rank - b.rank; }) : [];
       var best = latestOz.length ? latestOz[0].rank : null;
-      var prevDate = dates.filter(function (d) { return d < latestDate; })[0];
-      var prevBest = prevDate ? Math.min.apply(null, dmap[prevDate].map(function (x) { return x.rank; })) : null;
+      var prevBest = dates.length > 1 ? Math.min.apply(null, dmap[dates[1]].map(function (x) { return x.rank; })) : null;
+      var d = String(lr.created_at).slice(0, 10); if (d > maxDate) maxDate = d;
       return {
         keyword: k, ozBest: best, ozCount: latestOz.length, ozPrev: prevBest,
         top1mall: lr.mall_name, top1price: lr.price, top1title: lr.title,
         ozProducts: latestOz.map(function (x) { return { rank: x.rank, title: x.title, price: x.price, url: x.product_url }; })
       };
     });
-    return { date: latestDate, count: out.length, values: out };
+    return { date: maxDate || null, count: out.length, values: out };
   } catch (e) { return { error: String(e) }; }
 }
 
