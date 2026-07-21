@@ -1341,34 +1341,50 @@ async function renderDiscovery(){
 }
 
 /* ── 부트스트랩 ────────────────────────────────────────────── */
-async function boot(){
-  document.getElementById("updatedAt").textContent=kstNow();
-  document.getElementById("connState").textContent="불러오는 중…";
-  // 키워드사전(2MB+)은 일시적 과부하/타임아웃으로 빈 응답이 올 수 있음 → 최대 3회 재시도(백오프)
-  let kd=null, settings={};
-  for(let attempt=1; attempt<=3; attempt++){
-    try{
-      const r = await Promise.all([ api("keyword_dict"), api("settings").catch(()=>({})) ]);
-      settings = r[1] || {};
-      if(r[0] && r[0].header && r[0].rows && r[0].rows.length){ kd=r[0]; break; }  // 유효 응답
-    }catch(e){}
-    if(attempt<3){ document.getElementById("connState").textContent=`재시도 중… (${attempt}/3)`; await new Promise(res=>setTimeout(res, 1500*attempt)); }
-  }
-  if(!kd){
-    document.getElementById("connState").textContent="연결 실패";
-    document.getElementById("weekly-body").innerHTML=`<div class="info">데이터를 불러오지 못했습니다 — 일시적 지연/과부하일 수 있어요.<br><button onclick="boot()" class="dl-btn primary" style="margin-top:10px">🔄 다시 불러오기</button></div>`;
-    return;
-  }
-  STATE.settings = settings;
+function applyDict_(kd, settings){
+  STATE.settings = settings || {};
   // 저장된 주간 필터 복원 (시트 우선, 없으면 로컬캐시) → 다른 PC에서도 동일
   const wf = STATE.settings["ui_weekly_filters"] || (function(){try{return localStorage.getItem("kw_ui_weekly_filters");}catch(e){return null;}})();
   if(wf){ try{ const o=JSON.parse(wf); FILTER.seasons=o.seasons||[]; FILTER.categories=o.categories||[]; FILTER.genders=o.genders||[]; }catch(e){} }
   const {weekly, weekCols, meta} = parseKeywordDict(kd);
   Object.assign(STATE,{weekly,weekCols,meta});
-  document.getElementById("connState").textContent = CONFIG.API_URL ? "연결됨" : "목업 모드";
   initFilters();
   renderWeekly();
   navigate(currentPage());   // URL 해시(#trend 등)에 맞는 탭 열기
+}
+async function boot(){
+  document.getElementById("updatedAt").textContent=kstNow();
+  const cs=document.getElementById("connState");
+  // 1) 캐시 즉시 렌더 — 키워드사전 2MB+ 로딩이 느리거나 실패해도 화면 유지
+  let usedCache=false;
+  try{
+    const c=localStorage.getItem("kw_dict_cache_v1");
+    if(c){ const kd=JSON.parse(c); if(kd&&kd.rows&&kd.rows.length){
+      let st={}; try{ st=JSON.parse(localStorage.getItem("kw_settings_cache_v1")||"{}"); }catch(e){}
+      applyDict_(kd, st); usedCache=true; cs.textContent="캐시 표시 · 최신 불러오는 중…";
+    }}
+  }catch(e){}
+  // 2) 최신 데이터 fetch (최대 3회 재시도, 백오프)
+  let kd=null, settings={};
+  for(let attempt=1; attempt<=3; attempt++){
+    if(!usedCache) cs.textContent = attempt>1?`재시도 중… (${attempt}/3)`:"불러오는 중…";
+    try{
+      const r = await Promise.all([ api("keyword_dict"), api("settings").catch(()=>({})) ]);
+      settings = r[1] || {};
+      if(r[0] && r[0].header && r[0].rows && r[0].rows.length){ kd=r[0]; break; }
+    }catch(e){}
+    if(attempt<3) await new Promise(res=>setTimeout(res, 1500*attempt));
+  }
+  if(kd){
+    try{ localStorage.setItem("kw_dict_cache_v1", JSON.stringify(kd)); localStorage.setItem("kw_settings_cache_v1", JSON.stringify(settings)); }catch(e){}
+    applyDict_(kd, settings);
+    cs.textContent = CONFIG.API_URL ? "연결됨" : "목업 모드";
+  } else if(usedCache){
+    cs.textContent="캐시 표시(최신 불러오기 실패)";   // 캐시로 이미 렌더됨 → 화면 유지
+  } else {
+    cs.textContent="연결 실패";
+    document.getElementById("weekly-body").innerHTML=`<div class="info">데이터를 불러오지 못했습니다 — 일시적 지연/과부하일 수 있어요.<br><button onclick="boot()" class="dl-btn primary" style="margin-top:10px">🔄 다시 불러오기</button></div>`;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
