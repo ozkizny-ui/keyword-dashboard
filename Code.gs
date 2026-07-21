@@ -94,19 +94,127 @@ function brandboardRankings() {
 
 // ── 쇼핑 광고요약: CSV 업로드가 덮어씀. 키워드별 상품형/브랜드형 순위 + 광고그룹명 ──
 //   rows: [{keyword, prod_rank, prod_group, brand_rank, brand_group}]
+// ═══════════════ ad-studio(bauc) Supabase 저장소 — rank/trend/ad_summary 이관 ═══════════════
+var AD_SB_URL = 'https://baucagnqmtmaqlybjyzc.supabase.co/rest/v1/';
+function adSbKey_() { var k = PropertiesService.getScriptProperties().getProperty('ADSTUDIO_SERVICE_KEY'); if (!k) throw 'ADSTUDIO_SERVICE_KEY 스크립트 속성 미설정'; return k; }
+function adSbHdr_(extra) { var k = adSbKey_(), h = { apikey: k, Authorization: 'Bearer ' + k, 'Content-Type': 'application/json' }; if (extra) Object.keys(extra).forEach(function (p) { h[p] = extra[p]; }); return h; }
+function adSbGetAll_(table, qs) {
+  var out = [], off = 0, PAGE = 1000;
+  for (var g = 0; g < 2000; g++) {
+    var res = UrlFetchApp.fetch(AD_SB_URL + table + '?' + qs + '&limit=' + PAGE + '&offset=' + off, { headers: adSbHdr_(), muteHttpExceptions: true });
+    if (res.getResponseCode() >= 400) throw 'SB GET ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 150);
+    var arr = JSON.parse(res.getContentText()); out = out.concat(arr);
+    if (arr.length < PAGE) break; off += PAGE;
+  }
+  return out;
+}
+function adSbUpsert_(table, rows) {
+  for (var i = 0; i < rows.length; i += 800) {
+    var res = UrlFetchApp.fetch(AD_SB_URL + table, { method: 'post', headers: adSbHdr_({ Prefer: 'resolution=merge-duplicates,return=minimal' }), payload: JSON.stringify(rows.slice(i, i + 800)), muteHttpExceptions: true });
+    if (res.getResponseCode() >= 400) throw 'SB UPSERT ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 200);
+  }
+}
+function adSbDelete_(table, qs) {
+  var res = UrlFetchApp.fetch(AD_SB_URL + table + '?' + qs, { method: 'delete', headers: adSbHdr_({ Prefer: 'return=minimal' }), muteHttpExceptions: true });
+  if (res.getResponseCode() >= 400) throw 'SB DEL ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 150);
+}
+
+// rank: Supabase(tall) → 기존 { header:[계절,품목,keyword,...주차], rows } 형태로 반환(소비자 무수정)
+function rankSupabase_(type) {
+  var t = String(type || 'shopping');
+  var rows = adSbGetAll_('naver_rank', 'type=eq.' + encodeURIComponent(t) + '&select=keyword,week,rank,season,item');
+  var weekSet = {}, byKw = {};
+  rows.forEach(function (r) { weekSet[r.week] = 1; var k = r.keyword; if (!byKw[k]) byKw[k] = { s: r.season || '', i: r.item || '', w: {} }; byKw[k].w[r.week] = r.rank; });
+  var weeks = Object.keys(weekSet).sort();
+  var header = ['계절', '품목', 'keyword'].concat(weeks);
+  var out = Object.keys(byKw).map(function (k) { var o = byKw[k], row = [o.s, o.i, k]; weeks.forEach(function (w) { row.push(o.w[w] != null ? o.w[w] : ''); }); return row; });
+  return { header: header, rows: out };
+}
+function saveRankSupabase_(type, week, rows, keep) {
+  keep = keep || 2; var t = String(type);
+  var clean = (rows || []).filter(function (r) { return r.keyword && r.avg_rank !== '' && r.avg_rank != null && !isNaN(r.avg_rank); });
+  var up = clean.map(function (r) { return { type: t, keyword: String(r.keyword).trim(), week: week, rank: Number(r.avg_rank), season: String(r['계절'] || ''), item: String(r['품목'] || '') }; });
+  adSbUpsert_('naver_rank', up);
+  var wk = adSbGetAll_('naver_rank', 'type=eq.' + encodeURIComponent(t) + '&select=week');
+  var seen = {}, uniq = []; wk.forEach(function (r) { if (!seen[r.week]) { seen[r.week] = 1; uniq.push(r.week); } });
+  uniq.sort(); var drop = uniq.slice(0, Math.max(0, uniq.length - keep));
+  drop.forEach(function (w) { adSbDelete_('naver_rank', 'type=eq.' + encodeURIComponent(t) + '&week=eq.' + encodeURIComponent(w)); });
+  return { ok: true, saved: up.length, weeks: uniq.slice(-keep) };
+}
+function trendSupabase_() {
+  var rows = adSbGetAll_('naver_trend', 'select=date,keyword,weekly_volume,ratio&order=date.asc');
+  return { header: ['date', 'keyword', 'estimated_weekly_volume', 'ratio'], rows: rows.map(function (r) { return [r.date, r.keyword, r.weekly_volume, r.ratio]; }) };
+}
+function saveTrendSupabase_(rows) {
+  adSbDelete_('naver_trend', 'keyword=not.is.null');
+  var up = (rows || []).map(function (r) { return { date: String(r[0]), keyword: String(r[1]), weekly_volume: Number(r[2]) || 0, ratio: Number(r[3]) || 0 }; }).filter(function (r) { return r.date && r.keyword; });
+  adSbUpsert_('naver_trend', up);
+  return { ok: true, saved: up.length };
+}
+function trendKeywordsSupabase_() {
+  var rows = adSbGetAll_('naver_trend', 'select=keyword');
+  var seen = {}, out = []; rows.forEach(function (r) { var k = String(r.keyword || '').trim(); if (k && !seen[k]) { seen[k] = 1; out.push(k); } });
+  return out;
+}
+function adSummarySupabase_() {
+  var rows = adSbGetAll_('naver_ad_summary', 'select=keyword,prod_rank,prod_group,brand_rank,brand_group,updated');
+  return { header: ['keyword', 'prod_rank', 'prod_group', 'brand_rank', 'brand_group', 'updated'],
+    rows: rows.map(function (r) { return [r.keyword, r.prod_rank == null ? '' : r.prod_rank, r.prod_group || '', r.brand_rank == null ? '' : r.brand_rank, r.brand_group || '', r.updated || '']; }) };
+}
+// 쇼핑 광고요약 저장(덮어씀) → Supabase
 function saveAdSummary(rows) {
-  var ss = SpreadsheetApp.openById('1uD-2gHghytC-Gb4ryEWGmhtjeFqGcTY59M90sxrASyI');
-  var sh = ss.getSheetByName('쇼핑광고요약') || ss.insertSheet('쇼핑광고요약');
-  sh.clearContents();
-  var header = ['keyword', 'prod_rank', 'prod_group', 'brand_rank', 'brand_group', 'updated'];
   var ts = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
-  var out = [header];
-  (rows || []).forEach(function (r) {
-    out.push([r.keyword || '', r.prod_rank == null ? '' : r.prod_rank, r.prod_group || '',
-              r.brand_rank == null ? '' : r.brand_rank, r.brand_group || '', ts]);
+  var up = (rows || []).map(function (r) { return { keyword: String(r.keyword || '').trim(), prod_rank: r.prod_rank == null ? null : Number(r.prod_rank), prod_group: r.prod_group || '', brand_rank: r.brand_rank == null ? null : Number(r.brand_rank), brand_group: r.brand_group || '', updated: ts }; }).filter(function (r) { return r.keyword; });
+  adSbDelete_('naver_ad_summary', 'keyword=not.is.null');
+  adSbUpsert_('naver_ad_summary', up);
+  return { ok: true, saved: up.length, updated: ts };
+}
+
+// 연결 테스트: 각 테이블 접근 확인
+function sbTest_() {
+  var r = {};
+  try { r.naver_rank = adSbGetAll_('naver_rank', 'select=type&limit=1') ? 'OK' : 'OK'; } catch (e) { r.naver_rank = String(e); }
+  try { adSbGetAll_('naver_trend', 'select=keyword&limit=1'); r.naver_trend = 'OK'; } catch (e) { r.naver_trend = String(e); }
+  try { adSbGetAll_('naver_ad_summary', 'select=keyword&limit=1'); r.naver_ad_summary = 'OK'; } catch (e) { r.naver_ad_summary = String(e); }
+  return r;
+}
+
+// ═══════════════ 시트 → Supabase 1회 이관 (Apps Script 에디터에서 직접 Run) ═══════════════
+function migrateToSupabase() {
+  var S = KWWEB.CFG.SHEET, log = [];
+  [['shopping', S.shopping], ['powerlink', S.powerlink], ['blog', S.blog], ['cafe', S.cafe]].forEach(function (pair) {
+    var type = pair[0], d = KWWEB.sheetData(pair[1]);
+    if (!d.rows.length) { log.push(type + ': (빈 시트)'); return; }
+    var H = d.header, kwCol = H.indexOf('keyword'), sCol = H.indexOf('계절'), iCol = H.indexOf('품목');
+    if (kwCol < 0) { log.push(type + ': keyword 컬럼 없음'); return; }
+    var weekCols = []; H.forEach(function (c, i) { if (c && c !== 'keyword' && c !== '계절' && c !== '품목') weekCols.push({ n: c, i: i }); });
+    var recent = weekCols.slice(-2);
+    var up = [];
+    d.rows.forEach(function (r) {
+      var kw = String(r[kwCol] || '').trim(); if (!kw) return;
+      recent.forEach(function (wc) {
+        var v = r[wc.i]; if (v === '' || v == null) return; var n = parseFloat(String(v).replace(/,/g, '')); if (isNaN(n)) return;
+        up.push({ type: type, keyword: kw, week: wc.n, rank: n, season: sCol >= 0 ? String(r[sCol] || '') : '', item: iCol >= 0 ? String(r[iCol] || '') : '' });
+      });
+    });
+    adSbUpsert_('naver_rank', up);
+    log.push(type + ': ' + up.length + '행 (' + recent.map(function (w) { return w.n; }).join(',') + ')');
   });
-  sh.getRange(1, 1, out.length, header.length).setValues(out);
-  return { ok: true, saved: out.length - 1, updated: ts };
+  var td = KWWEB.sheetData(S.trend);
+  if (td.rows.length) {
+    adSbDelete_('naver_trend', 'keyword=not.is.null');
+    var tup = td.rows.map(function (r) { return { date: String(r[0]), keyword: String(r[1]), weekly_volume: parseFloat(r[2]) || 0, ratio: parseFloat(r[3]) || 0 }; }).filter(function (r) { return r.date && r.keyword; });
+    adSbUpsert_('naver_trend', tup); log.push('trend: ' + tup.length + '행');
+  } else log.push('trend: (빈 시트)');
+  var ad = KWWEB.sheetData('쇼핑광고요약');
+  if (ad.rows.length) {
+    var aH = ad.header, gi = function (n) { return aH.indexOf(n); };
+    adSbDelete_('naver_ad_summary', 'keyword=not.is.null');
+    var aup = ad.rows.map(function (r) { return { keyword: String(r[gi('keyword')] || ''), prod_rank: r[gi('prod_rank')] === '' ? null : Number(r[gi('prod_rank')]), prod_group: String(r[gi('prod_group')] || ''), brand_rank: r[gi('brand_rank')] === '' ? null : Number(r[gi('brand_rank')]), brand_group: String(r[gi('brand_group')] || ''), updated: String(r[gi('updated')] || '') }; }).filter(function (r) { return r.keyword; });
+    adSbUpsert_('naver_ad_summary', aup); log.push('ad_summary: ' + aup.length + '행');
+  } else log.push('ad_summary: (빈 시트)');
+  Logger.log(log.join(' | '));
+  return log.join(' | ');
 }
 
 var KWWEB = {
@@ -167,10 +275,10 @@ var KWWEB = {
           client_secret: !!this.CFG.NAVER_CLIENT_SECRET });
         case 'keyword_dict':      return this.json(this.sheetData(S.dict));
         case 'weekly':            return this.json(this.sheetData(S.weekly));
-        case 'trend':             return this.json(this.sheetData(S.trend));
+        case 'trend':             return this.json(trendSupabase_());
         case 'settings':          return this.json(this.settingsObj());
         case 'newkw':             return this.json(this.sheetData(S.newkw));
-        case 'rank':              return this.json(this.sheetData(S[p.type] || S.shopping));
+        case 'rank':              return this.json(rankSupabase_(p.type || 'shopping'));
         case 'bootstrap':         return this.json({ keyword_dict: this.sheetData(S.dict), settings: this.settingsObj() });
         // ── 라이브 네이버 (인터랙티브, 소량) ──
         case 'search_volume':     return this.json(this.fetchSearchVolume(this.csv(p.kw), p.exact !== '0'));
@@ -180,7 +288,8 @@ var KWWEB = {
         case 'blog_rank':         return this.json(this.fetchBlogRank(this.csv(p.kw)));
         case 'cafe_rank':         return this.json(this.fetchCafeRank(this.csv(p.kw)));
         case 'brandboard_rank':   return this.json(brandboardRankings(p.days, p.limit));
-        case 'ad_summary':        return this.json(this.sheetData('쇼핑광고요약'));
+        case 'ad_summary':        return this.json(adSummarySupabase_());
+        case 'sb_test':           return this.json(sbTest_());
         default:                  return this.json({ error: 'unknown action', actions: ['keyword_dict','weekly','trend','rank','settings','newkw','search_volume','related_kw','shopping_category','datalab','blog_rank','cafe_rank'] });
       }
     } catch (err) { return this.json({ error: String(err && err.stack || err) }); }
@@ -196,14 +305,14 @@ var KWWEB = {
         case 'save_setting':      this.saveSetting(body.key, body.value); return this.json({ ok: true });
         case 'save_new_keywords': this.saveNewKeywords(body.rows || []);  return this.json({ ok: true, saved: (body.rows || []).length });
         case 'append_dict':       return this.json(appendDictKw(body.keyword, body.rep, body.seed));
-        case 'append_rank':       this.appendRankHistory(body.rows || [], body.week, S[body.rank_type] || S.shopping); return this.json({ ok: true, saved: (body.rows || []).length });
+        case 'append_rank':       return this.json(saveRankSupabase_(body.rank_type, body.week, body.rows || []));
         case 'save_ad_summary':   return this.json(saveAdSummary(body.rows || []));
         case 'collect_rank': {     // 블로그/카페/쇼핑오가닉 순위 라이브 조회 + 저장 (한 번에)
           var ranks = body.kind === 'cafe' ? this.fetchCafeRank(body.kw || [])
                     : body.kind === 'shopOrganic' ? this.fetchShoppingRank(body.kw || [])
                     : this.fetchBlogRank(body.kw || []);
           var rrows = ranks.map(function (r) { return { keyword: r.keyword, avg_rank: r.rank }; });
-          this.appendRankHistory(rrows, body.week, S[body.kind] || S.blog);
+          saveRankSupabase_(body.kind, body.week, rrows);
           return this.json({ ok: true, saved: rrows.length, week: body.week });
         }
         case 'save_trend':        this.saveTrend(body.header || [], body.rows || []); return this.json({ ok: true });
@@ -400,8 +509,8 @@ var KWWEB = {
   },
   collectTrend: function () {
     if (!this.CFG.NAVER_CLIENT_ID || !this.CFG.NAVER_AD_API_LICENSE) return { error: '네이버 키 미설정 (Config 시트 확인)' };
-    var kws = this.trendKeywords();
-    if (!kws.length) return { error: '수집할 키워드가 없습니다 (연간트렌드 시트가 비어있음).' };
+    var kws = trendKeywordsSupabase_();
+    if (!kws.length) return { error: '수집할 키워드가 없습니다 (naver_trend 비어있음).' };
     var vols = this.fetchSearchVolume(kws, true), volMap = {};
     vols.forEach(function (v) { volMap[v.keyword] = v.total; });
     var end = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
@@ -410,7 +519,7 @@ var KWWEB = {
     var trend = this.fetchDatalabTrend(kws, start, end);
     var rows = this.estimateWeekly(trend, volMap);
     if (!rows.length) return { error: '데이터랩 응답이 비어있습니다 (네이버 키/쿼터 확인).' };
-    this.saveTrend(['date', 'keyword', 'estimated_weekly_volume', 'ratio'], rows);
+    saveTrendSupabase_(rows);
     var ts = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
     this.saveSetting('trend_last_collected', ts);
     return { ok: true, keywords: kws.length, rows: rows.length, collected: ts };
