@@ -124,7 +124,14 @@ function rankSupabase_(type) {
   var weeks = Object.keys(weekSet).sort();
   var header = ['계절', '품목', 'keyword'].concat(weeks);
   var out = Object.keys(byKw).map(function (k) { var o = byKw[k], row = [o.s, o.i, k]; weeks.forEach(function (w) { row.push(o.w[w] != null ? o.w[w] : ''); }); return row; });
-  return { header: header, rows: out };
+  return { header: header, rows: out, updated: adSbLastUpdated_(t) };
+}
+// 특정 type의 마지막 갱신 시각(KST) — updated_at 최댓값 1건만
+function adSbLastUpdated_(type) {
+  var res = UrlFetchApp.fetch(AD_SB_URL + 'naver_rank?type=eq.' + encodeURIComponent(type) + '&select=updated_at&order=updated_at.desc&limit=1', { headers: adSbHdr_(), muteHttpExceptions: true });
+  if (res.getResponseCode() >= 400) return '';
+  var a = JSON.parse(res.getContentText());
+  return (a && a[0] && a[0].updated_at) ? Utilities.formatDate(new Date(a[0].updated_at), 'Asia/Seoul', 'yyyy-MM-dd HH:mm') : '';
 }
 function saveRankSupabase_(type, week, rows, keep) {
   keep = keep || 2; var t = String(type);
