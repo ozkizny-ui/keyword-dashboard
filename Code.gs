@@ -136,7 +136,8 @@ function adSbLastUpdated_(type) {
 function saveRankSupabase_(type, week, rows, keep) {
   keep = keep || 2; var t = String(type);
   var clean = (rows || []).filter(function (r) { return r.keyword && r.avg_rank !== '' && r.avg_rank != null && !isNaN(r.avg_rank); });
-  var up = clean.map(function (r) { return { type: t, keyword: String(r.keyword).trim(), week: week, rank: Number(r.avg_rank), season: String(r['계절'] || ''), item: String(r['품목'] || '') }; });
+  var _ts = new Date().toISOString();
+  var up = clean.map(function (r) { return { type: t, keyword: String(r.keyword).trim(), week: week, rank: Number(r.avg_rank), season: String(r['계절'] || ''), item: String(r['품목'] || ''), updated_at: _ts }; });
   adSbUpsert_('naver_rank', up);
   var wk = adSbGetAll_('naver_rank', 'type=eq.' + encodeURIComponent(t) + '&select=week');
   var seen = {}, uniq = []; wk.forEach(function (r) { if (!seen[r.week]) { seen[r.week] = 1; uniq.push(r.week); } });
